@@ -1,0 +1,27 @@
+﻿{
+  "users": [
+    {
+      "username": "admin",
+      "display_name": "Admin",
+      "active": true,
+      "is_admin": true,
+      "name": "Admin",
+      "department": "Finance",
+      "password_hash": "replace-with-sha256-password-hash"
+    }
+  ],
+  "roles": [
+    {
+      "role_key": "admin",
+      "role_name": "System Admin",
+      "active": true,
+      "description": "Full system access"
+    }
+  ],
+  "role_permissions": {
+    "admin": ["*"]
+  },
+  "user_roles": {
+    "admin": ["admin"]
+  }
+}
