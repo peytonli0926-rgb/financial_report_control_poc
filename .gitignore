@@ -22,10 +22,12 @@ Thumbs.db
 streamlit_check.*.log
 
 # Local/generated recovery artifacts
-app_recovered_full.cpython-314.pyc
 localhistory_extract.txt
 code_objects.txt
-recovered_app.py
+
+# Temporary recovery assets required until app.py is fully migrated back to source.
+!app_recovered_full.cpython-314.pyc
+!recovered_app.py
 
 # Local secrets / environment-specific access config
 /config/access_control.json
