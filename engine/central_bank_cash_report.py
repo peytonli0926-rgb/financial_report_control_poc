@@ -60,6 +60,12 @@ def build_central_bank_cash_report(
     )
     rmb_reserve_ratio = reserve_ratios.get("人民币") or _deposit_reserve_ratio(source_df, amount_column, "人民币")
     foreign_reserve_ratio = reserve_ratios.get("外币") or _deposit_reserve_ratio(source_df, amount_column, "外币")
+    group_total_yuan = (
+        group_cash_yuan + statutory_reserve_yuan + group_excess_reserve_yuan + group_other_yuan
+    ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    parent_total_yuan = (
+        parent_cash_yuan + statutory_reserve_yuan + parent_excess_reserve_yuan + parent_other_yuan
+    ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     rows = [
         _report_row(
@@ -115,8 +121,21 @@ def build_central_bank_cash_report(
             parent_other_yuan,
             "按10010103、13010303科目期末借方余额减贷方余额汇总取数，金额单位已转换为千元。",
         ),
-        _ratio_row(
+        _report_row(
             5,
+            report_period,
+            report_name,
+            "A0001",
+            "现金及存放中央银行款项",
+            "B0254+B0255+B0256+B0257",
+            "合计指标",
+            "B0254库存现金+B0255法定存款准备金+B0256超额存款准备金+B0257其他存放中央银行款项",
+            group_total_yuan,
+            parent_total_yuan,
+            "按明细指标求和生成合计数，金额单位已转换为千元。",
+        ),
+        _ratio_row(
+            6,
             report_period,
             report_name,
             "B0258",
@@ -128,7 +147,7 @@ def build_central_bank_cash_report(
             "从5-1-1-1表“比率”sheet页读取人民币存款缴存比率。" if rmb_reserve_ratio is not None else "当前上传文件未包含“比率”sheet页人民币缴存比率，请补充后复核。",
         ),
         _ratio_row(
-            6,
+            7,
             report_period,
             report_name,
             "B0259",

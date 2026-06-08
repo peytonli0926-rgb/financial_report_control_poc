@@ -138,7 +138,7 @@ def _fill_template_workbook(worksheets: list[Worksheet], report_df: pd.DataFrame
                 item_name = _normalize_text(cell.value)
                 if not item_name:
                     continue
-                if cell.row <= 3:
+                if cell.row <= 3 and not METRIC_CODE_PATTERN.search(item_name):
                     continue
                 if _is_item_label_column(worksheet, cell.column, cell.row):
                     continue
@@ -149,13 +149,13 @@ def _fill_template_workbook(worksheets: list[Worksheet], report_df: pd.DataFrame
                     alias_amount = template_alias_lookup.get(item_name)
                 if alias_amount is not None:
                     matched_item = contextual_key or item_name
-                    _write_amount(cell, alias_amount)
+                    _write_amount(cell, alias_amount, matched_item)
                     match_rows.append(_match_row(worksheet, matched_item, cell.coordinate, cell.coordinate, "", alias_amount, None))
                     continue
 
                 period_amount = _period_metric_amount(period_lookup, item_name, cell.column, worksheet_period_columns)
                 if period_amount is not None:
-                    _write_amount(cell, period_amount)
+                    _write_amount(cell, period_amount, item_name)
                     match_rows.append(_match_row(worksheet, item_name, cell.coordinate, cell.coordinate, "", period_amount, None))
                     continue
                 if worksheet_period_columns.get(cell.column) and METRIC_CODE_PATTERN.search(item_name):
@@ -168,7 +168,7 @@ def _fill_template_workbook(worksheets: list[Worksheet], report_df: pd.DataFrame
                 if direct_amount is None and use_previous_amount:
                     direct_amount = _direct_metric_amount(direct_lookup, item_name)
                 if direct_amount is not None:
-                    _write_amount(cell, direct_amount)
+                    _write_amount(cell, direct_amount, item_name)
                     match_rows.append(_match_row(worksheet, item_name, cell.coordinate, cell.coordinate, "", direct_amount, None))
                     continue
 
@@ -185,9 +185,9 @@ def _fill_template_workbook(worksheets: list[Worksheet], report_df: pd.DataFrame
                 parent_amount = _get_amount(report_row, PARENT_AMOUNT_COLUMN)
 
                 if group_cell is not None and group_amount is not None:
-                    _write_amount(group_cell, group_amount)
+                    _write_amount(group_cell, group_amount, item_name)
                 if parent_cell is not None and parent_amount is not None:
-                    _write_amount(parent_cell, parent_amount)
+                    _write_amount(parent_cell, parent_amount, item_name)
 
                 match_rows.append(
                     _match_row(
@@ -235,10 +235,21 @@ def _match_row(
     }
 
 
-def _write_amount(cell: Any, amount: float) -> None:
+def _write_amount(cell: Any, amount: float, metric_key: str = "") -> None:
     cell.value = amount
-    cell.number_format = AMOUNT_NUMBER_FORMAT
+    cell.number_format = _metric_number_format(metric_key)
     cell.alignment = AMOUNT_ALIGNMENT
+
+
+def _metric_number_format(metric_key: Any) -> str:
+    if _is_ratio_metric_key(metric_key):
+        return "0.00%"
+    return AMOUNT_NUMBER_FORMAT
+
+
+def _is_ratio_metric_key(metric_key: Any) -> bool:
+    text = _normalize_text(metric_key)
+    return "B0258" in text or "B0259" in text or "缴存比率" in text or "比例" in text
 
 
 def _build_report_row_map(report_df: pd.DataFrame) -> dict[str, pd.Series]:
@@ -290,8 +301,8 @@ def _build_template_alias_lookup(
     for (key, period), amount in period_lookup.items():
         period_alias = ""
         if period and current_period and period == current_period:
-            period_alias = "本期"
-        elif period and previous_period and period == previous_period:
+            continue
+        if period and previous_period and period == previous_period:
             period_alias = "上期"
         if not period_alias:
             continue
@@ -329,17 +340,23 @@ def _load_pdf_disclosure_template_aliases(report_df: pd.DataFrame) -> dict[str, 
             if not keys:
                 continue
             values = _amount_values_from_raw_pdf_text(_normalize_text(row.get("PDF原始行文本")))
-            if len(values) < 4:
-                continue
             for key in keys:
-                _register_template_aliases(lookup, key, "集团", "上期", values[1])
-                _register_template_aliases(lookup, key, "本行", "上期", values[3])
+                if _is_ratio_metric_key(key) and len(values) >= 2:
+                    _register_template_aliases(lookup, key, "集团", "上期", values[1])
+                    _register_template_aliases(lookup, key, "本行", "上期", values[1])
+                elif len(values) >= 4:
+                    _register_template_aliases(lookup, key, "集团", "上期", values[1])
+                    _register_template_aliases(lookup, key, "本行", "上期", values[3])
     return lookup
 
 
 def _amount_values_from_raw_pdf_text(raw_text: str) -> list[float]:
     values: list[float] = []
     for part in [part.strip() for part in raw_text.split("|")]:
+        percent_match = re.fullmatch(r"-?\d+(?:\.\d+)?\s*%", part)
+        if percent_match:
+            values.append(float(part.rstrip("%").strip()) / 100)
+            continue
         if _looks_like_pdf_note_number(part):
             continue
         if part in {"-", "－", "—"}:
@@ -765,18 +782,31 @@ def _replace_sheet_with_dataframe(workbook: Any, sheet_name: str, df: pd.DataFra
         cell.font = Font(bold=True)
 
     for row_index, row in enumerate(df.itertuples(index=False), start=2):
+        row_metric_key = _dataframe_row_metric_key(df, row)
         for column_index, value in enumerate(row, start=1):
             if pd.isna(value):
                 value = None
             cell = worksheet.cell(row=row_index, column=column_index, value=value)
             if "金额" in str(df.columns[column_index - 1]):
-                cell.number_format = AMOUNT_NUMBER_FORMAT
+                cell.number_format = _metric_number_format(row_metric_key)
                 cell.alignment = AMOUNT_ALIGNMENT
 
     worksheet.freeze_panes = "A2"
     if worksheet.max_row >= 1 and worksheet.max_column >= 1:
         worksheet.auto_filter.ref = worksheet.dimensions
     _auto_fit_columns(worksheet)
+
+
+def _dataframe_row_metric_key(df: pd.DataFrame, row: Any) -> str:
+    values = list(row)
+    parts: list[str] = []
+    for column_name in (ITEM_CODE_COLUMN, ITEM_COLUMN):
+        if column_name not in df.columns:
+            continue
+        column_index = list(df.columns).index(column_name)
+        if column_index < len(values):
+            parts.append(_normalize_text(values[column_index]))
+    return " ".join(part for part in parts if part)
 
 
 def _build_summary_df(

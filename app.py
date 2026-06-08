@@ -80,13 +80,6 @@ def handle_login_submit(access_control: dict, username: str, password: str) -> b
 
 def render_login_page(access_control: dict) -> None:
     """Render the active login screen without falling back to the recovered legacy UI."""
-    import base64
-
-    visual_path = BASE_DIR / "assets" / "login_left_visual.png"
-    visual_data_uri = ""
-    if visual_path.exists():
-        visual_data_uri = "data:image/png;base64," + base64.b64encode(visual_path.read_bytes()).decode("ascii")
-
     title = "\u767b\u5f55\u8d22\u62a5\u667a\u63a7\u5e73\u53f0"
     subtitle = "\u4f7f\u7528\u5df2\u6388\u6743\u8d26\u53f7\u8fdb\u5165\u62a5\u8868\u7f16\u5236\u3001\u6570\u636e\u6821\u9a8c\u548c\u62ab\u9732\u7ba1\u7406\u5de5\u4f5c\u53f0\u3002"
     footer = "\u6570\u636e\u5b89\u5168\u4fdd\u62a4\u4e2d · \u4f20\u8f93\u52a0\u5bc6 · \u6743\u9650\u7ba1\u63a7 · \u64cd\u4f5c\u53ef\u8ffd\u6eaf"
@@ -101,23 +94,31 @@ def render_login_page(access_control: dict) -> None:
         footer {
             display: none !important;
         }
+        .login-card-wrap,
+        .deloitte-logo,
+        .login-card-head {
+            display: none !important;
+        }
         .block-container {
             max-width: 1180px !important;
             padding: 1.35rem 3.4rem .8rem !important;
         }
         .stApp {
             background:
-                radial-gradient(circle at 13% 18%, rgba(134, 188, 37, .20), transparent 30%),
-                radial-gradient(circle at 88% 18%, rgba(18, 76, 120, .15), transparent 27%),
-                linear-gradient(132deg, #f4f8ee 0%, #edf5f6 50%, #f8fbf4 100%) !important;
-            color: #122019;
+                radial-gradient(circle at 16% 16%, rgba(46, 119, 255, .20), transparent 31%),
+                radial-gradient(circle at 86% 22%, rgba(105, 166, 255, .18), transparent 29%),
+                radial-gradient(circle at 52% 82%, rgba(194, 221, 255, .42), transparent 38%),
+                linear-gradient(132deg, #f7fbff 0%, #edf5ff 48%, #f8fbff 100%) !important;
+            color: #10213f;
         }
         .stApp::before {
             content: "";
             position: fixed;
             inset: 0;
             pointer-events: none;
-            background: repeating-linear-gradient(90deg, rgba(13, 54, 42, .035) 0 1px, transparent 1px 42px);
+            background:
+                linear-gradient(115deg, rgba(38, 113, 255, .06), transparent 46%),
+                repeating-linear-gradient(90deg, rgba(18, 68, 140, .035) 0 1px, transparent 1px 42px);
         }
         div[data-testid="column"] {
             position: relative;
@@ -128,9 +129,9 @@ def render_login_page(access_control: dict) -> None:
             margin: .6rem auto 0;
             padding: 1.05rem;
             border-radius: 28px;
-            background: rgba(255, 255, 255, .62);
-            border: 1px solid rgba(199, 215, 198, .88);
-            box-shadow: 0 26px 72px rgba(25, 72, 62, .12);
+            background: rgba(255, 255, 255, .70);
+            border: 1px solid rgba(201, 219, 246, .92);
+            box-shadow: 0 26px 72px rgba(24, 91, 178, .15);
             backdrop-filter: blur(12px);
         }
         .login-visual-card img {
@@ -143,34 +144,34 @@ def render_login_page(access_control: dict) -> None:
             margin: .6rem auto 0;
             padding: 2rem 2.35rem 1.25rem;
             border-radius: 24px 24px 0 0;
-            background: rgba(255, 255, 255, .88);
-            border: 1px solid rgba(205, 219, 203, .95);
+            background: rgba(255, 255, 255, .90);
+            border: 1px solid rgba(204, 221, 247, .96);
             border-bottom: 0;
-            box-shadow: 0 22px 62px rgba(18, 64, 54, .12);
+            box-shadow: 0 22px 62px rgba(24, 91, 178, .13);
         }
         .login-brand {
-            color: #111814;
+            color: #10213f;
             font-size: 1.32rem;
             line-height: 1;
             font-weight: 950;
             letter-spacing: -.04em;
             margin-bottom: 1.35rem;
         }
-        .login-brand span { color: #86bc25; }
+        .login-brand span { color: #2f73ff; }
         .login-kicker {
             display: inline-flex;
             align-items: center;
             min-height: 23px;
             padding: 0 .68rem;
             border-radius: 999px;
-            background: rgba(134, 188, 37, .15);
-            color: #315c15;
+            background: rgba(47, 115, 255, .13);
+            color: #1f63d6;
             font-size: .72rem;
             font-weight: 850;
             margin-bottom: .78rem;
         }
         .login-title {
-            color: #101c17;
+            color: #10213f;
             font-size: 1.78rem;
             line-height: 1.12;
             font-weight: 950;
@@ -178,7 +179,7 @@ def render_login_page(access_control: dict) -> None:
             margin-bottom: .45rem;
         }
         .login-subtitle {
-            color: #6f7d75;
+            color: #64758f;
             font-size: .88rem;
             line-height: 1.52;
         }
@@ -186,36 +187,36 @@ def render_login_page(access_control: dict) -> None:
             max-width: 430px;
             margin: -1px auto 0;
             padding: 0 2.35rem 2rem;
-            border: 1px solid rgba(205, 219, 203, .95) !important;
+            border: 1px solid rgba(204, 221, 247, .96) !important;
             border-top: 0 !important;
             border-radius: 0 0 24px 24px !important;
-            background: rgba(255, 255, 255, .88) !important;
-            box-shadow: 0 22px 62px rgba(18, 64, 54, .12) !important;
+            background: rgba(255, 255, 255, .90) !important;
+            box-shadow: 0 22px 62px rgba(24, 91, 178, .13) !important;
         }
         div[data-testid="stForm"] div[data-testid="stTextInput"] { margin-bottom: .74rem; }
         div[data-testid="stForm"] input {
             min-height: 2.82rem;
             border-radius: 13px !important;
-            border: 1px solid #d9e3d5 !important;
-            background: #fbfdf9 !important;
-            color: #14231b !important;
+            border: 1px solid #d5e2f6 !important;
+            background: #fbfdff !important;
+            color: #10213f !important;
             box-shadow: inset 0 1px 0 rgba(255,255,255,.8) !important;
         }
         div[data-testid="stForm"] input:focus {
-            border-color: #86bc25 !important;
-            box-shadow: 0 0 0 3px rgba(134, 188, 37, .16) !important;
+            border-color: #2f73ff !important;
+            box-shadow: 0 0 0 3px rgba(47, 115, 255, .17) !important;
         }
-        div[data-testid="stForm"] input::placeholder { color: #9aa79e !important; }
+        div[data-testid="stForm"] input::placeholder { color: #9baac0 !important; }
         .login-helper {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            color: #7a877f;
+            color: #74839b;
             font-size: .78rem;
             margin: -.05rem 0 1.05rem;
         }
         .login-helper a {
-            color: #315c15 !important;
+            color: #1f63d6 !important;
             text-decoration: none !important;
             font-weight: 850;
         }
@@ -223,10 +224,10 @@ def render_login_page(access_control: dict) -> None:
         div[data-testid="stForm"] [data-testid="stBaseButton-primary"] {
             min-height: 2.9rem !important;
             border-radius: 13px !important;
-            border: 1px solid #65931a !important;
-            background: linear-gradient(135deg, #91c83e 0%, #5b8f13 100%) !important;
+            border: 1px solid #1f63d6 !important;
+            background: linear-gradient(135deg, #5aa1ff 0%, #2f73ff 44%, #1554c9 100%) !important;
             color: #ffffff !important;
-            box-shadow: 0 16px 28px rgba(93, 143, 19, .22) !important;
+            box-shadow: 0 16px 30px rgba(47, 115, 255, .28) !important;
             font-weight: 950 !important;
         }
         div[data-testid="stForm"] button p,
@@ -243,7 +244,7 @@ def render_login_page(access_control: dict) -> None:
             align-items: center;
             justify-content: center;
             gap: .45rem;
-            color: #75827a;
+            color: #75859c;
             font-size: .76rem;
         }
         .chrome-dot {
@@ -256,7 +257,7 @@ def render_login_page(access_control: dict) -> None:
             position: relative;
             z-index: 1;
             text-align: center;
-            color: #75827a;
+            color: #75859c;
             font-size: .74rem;
             margin-top: 1.15rem;
         }
@@ -269,6 +270,13 @@ def render_login_page(access_control: dict) -> None:
         """,
         unsafe_allow_html=True,
     )
+
+    import base64
+
+    visual_path = BASE_DIR / "assets" / "login_left_visual.png"
+    visual_data_uri = ""
+    if visual_path.exists():
+        visual_data_uri = "data:image/png;base64," + base64.b64encode(visual_path.read_bytes()).decode("ascii")
 
     left, right = st.columns([1.28, 0.92], gap="large")
     with left:
@@ -1620,6 +1628,10 @@ def _query_param_value(name: str, default: str = "") -> str:
 def _worksheet_to_html(worksheet) -> str:
     html_text = _original_worksheet_to_html(worksheet)
     try:
+        is_central_bank_cash_report = str(worksheet["A1"].value or "").strip() == "现金及存放中央银行款项"
+        if is_central_bank_cash_report:
+            html_text = _normalize_central_bank_cash_preview_html(worksheet, html_text)
+
         is_deposit_report = str(worksheet["A1"].value or "").strip() == "存放同业及其他金融机构款项"
         if not (is_deposit_report and str(worksheet["B2"].value or "").strip() == "20251231"):
             return html_text
@@ -1653,6 +1665,34 @@ def _worksheet_to_html(worksheet) -> str:
         return html_text
     except Exception:
         return html_text
+
+
+def _normalize_central_bank_cash_preview_html(worksheet, html_text: str) -> str:
+    item_name = str(worksheet["A3"].value or "").strip()
+    if item_name != "库存现金":
+        return html_text
+
+    current_value = _app["_format_excel_cell_value"](worksheet["B3"].value, worksheet["B3"].number_format)
+    previous_value = _app["_format_excel_cell_value"](worksheet["C3"].value, worksheet["C3"].number_format)
+    if not current_value and not previous_value:
+        return html_text
+
+    header_row = (
+        r'<tr><th style="text-align:center;padding-left:8px;">库存现金</th>'
+        r'<th style="text-align:center;padding-left:8px;">'
+        + re.escape(html.escape(current_value))
+        + r'</th><th style="text-align:center;padding-left:8px;">'
+        + re.escape(html.escape(previous_value))
+        + r'</th></tr>'
+    )
+    content_row = (
+        '<tr>'
+        '<td style="text-align:left;padding-left:8px;">库存现金</td>'
+        f'<td style="text-align:right;padding-left:8px;">{html.escape(current_value)}</td>'
+        f'<td style="text-align:right;padding-left:8px;">{html.escape(previous_value)}</td>'
+        '</tr>'
+    )
+    return re.sub(header_row, content_row, html_text, count=1)
 
 
 def render_interbank_deposit_trace_panel(report_key: str) -> None:
@@ -2179,6 +2219,7 @@ def render_permission_assignment_page(access_control: dict, report_types: dict) 
 _original_main = _app["main"]
 _original_apply_global_styles = _app["apply_global_styles"]
 _original_build_report_dataset = _app["build_report_dataset"]
+_original_build_pdf_metric_values_df = _app["build_pdf_metric_values_df"]
 
 
 def apply_global_styles() -> None:
@@ -2252,6 +2293,65 @@ def build_report_dataset(rule_file_path, report_key, report_config, report_types
     return _original_build_report_dataset(rule_file_path, report_key, report_config, report_types, institution_context)
 
 
+def build_pdf_metric_values_df(pdf_amounts_df, report_df, current_period, report_config=None):
+    metric_df = _original_build_pdf_metric_values_df(pdf_amounts_df, report_df, current_period, report_config)
+    if metric_df is None or metric_df.empty or pdf_amounts_df is None:
+        return metric_df
+
+    current_period_text, previous_period_text = _app["_pdf_metric_period_pair"](str(current_period), report_config)
+    previous_period_text = str(previous_period_text or "")
+    if not previous_period_text:
+        return metric_df
+
+    pdf_rows = _ratio_pdf_rows_by_item_name(pdf_amounts_df)
+    if not pdf_rows:
+        return metric_df
+
+    result_df = metric_df.copy()
+    for index, row in result_df.iterrows():
+        item_name = str(row.get("指标名称") or "")
+        item_code = str(row.get("指标编码") or "")
+        if not _is_deposit_reserve_ratio_metric(item_code, item_name):
+            continue
+        pdf_row = pdf_rows.get(item_name)
+        if pdf_row is None:
+            continue
+        values = _percent_values_from_pdf_raw_text(str(pdf_row.get("PDF原始行文本") or ""))
+        if len(values) < 2:
+            continue
+        current_value, previous_value = values[0], values[1]
+        for column in (f"PDF集团{current_period_text}", f"PDF本行{current_period_text}"):
+            if column in result_df.columns:
+                result_df.at[index, column] = current_value
+        for column in (f"PDF集团{previous_period_text}", f"PDF本行{previous_period_text}"):
+            if column in result_df.columns:
+                result_df.at[index, column] = previous_value
+    return result_df
+
+
+def _ratio_pdf_rows_by_item_name(pdf_amounts_df) -> dict[str, object]:
+    if not isinstance(pdf_amounts_df, pd.DataFrame) or "指标名称" not in pdf_amounts_df.columns:
+        return {}
+    rows: dict[str, object] = {}
+    for _, row in pdf_amounts_df.iterrows():
+        item_name = str(row.get("指标名称") or "")
+        if _is_deposit_reserve_ratio_metric("", item_name):
+            rows[item_name] = row
+    return rows
+
+
+def _is_deposit_reserve_ratio_metric(item_code: str, item_name: str) -> bool:
+    text = f"{item_code} {item_name}"
+    return "B0258" in text or "B0259" in text or "缴存比率" in text
+
+
+def _percent_values_from_pdf_raw_text(raw_text: str) -> list[float]:
+    values: list[float] = []
+    for match in re.finditer(r"-?\d+(?:\.\d+)?\s*%", raw_text):
+        values.append(float(match.group(0).rstrip("%").strip()) / 100)
+    return values
+
+
 _app["apply_global_styles"] = apply_global_styles
 _app["app_href"] = app_href
 _app["render_product_header"] = render_product_header
@@ -2267,6 +2367,7 @@ _app["render_unified_navigation"] = render_unified_navigation
 _app["render_top_user_bar"] = render_top_user_bar
 _app["render_workflow_home"] = render_workflow_home
 _app["build_report_dataset"] = build_report_dataset
+_app["build_pdf_metric_values_df"] = build_pdf_metric_values_df
 _app["main"] = main
 
 if __name__ == "__main__":

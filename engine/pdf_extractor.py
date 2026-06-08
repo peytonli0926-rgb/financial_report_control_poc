@@ -123,7 +123,9 @@ def extract_report_text(
     expanded_page_numbers: set[int] = set()
     all_pages = extract_pdf_text(pdf_path)
     max_page_no = len(all_pages)
-    offsets = (0,) if standalone_title_pages else (-1, 0, 1, 2)
+    # Note disclosures can continue onto the page immediately after a standalone
+    # title/table page, for example the deposit reserve ratio rows.
+    offsets = (0, 1) if standalone_title_pages else (-1, 0, 1, 2)
     for page_no in selected_page_numbers:
         for offset in offsets:
             candidate = page_no + offset
