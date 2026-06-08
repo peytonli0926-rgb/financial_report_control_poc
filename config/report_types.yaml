@@ -1,0 +1,286 @@
+report_types:
+  balance_sheet:
+    display_name: 资产负债表
+    rule_keyword: 合并及母公司资产负债表
+    pdf_keywords:
+    - 合并及母公司资产负债表
+    - 资产负债表
+    - 现金及存放中央银行款项
+    - 发放贷款和垫款
+    - 负债和股东权益总计
+    output_prefix: 资产负债表
+    period_type: 时点
+    validation_type: balance_check
+    key_items:
+    - 资产总计
+    - 负债和股东权益总计
+    - 现金及存放中央银行款项
+    - 发放贷款和垫款
+  income_statement:
+    display_name: 利润表
+    rule_keyword: 合并及母公司利润表
+    pdf_keywords:
+    - 合并及母公司利润表
+    - 利润表
+    - 利息净收入
+    - 营业收入
+    - 营业利润
+    - 利润总额
+    - 净利润
+    output_prefix: 利润表
+    period_type: 期间
+    validation_type: amount_compare
+    key_items:
+    - 营业收入
+    - 利息净收入
+    - 营业利润
+    - 利润总额
+    - 净利润
+  consolidated_shareholders_equity_statement:
+    display_name: 合并股东权益变动表
+    rule_keyword: 合并股东权益变动表
+    pdf_keywords:
+    - 合并股东权益变动表
+    - 股东权益变动表
+    - 归属于母公司股东权益
+    - 股东权益合计
+    output_prefix: 合并股东权益变动表
+    period_type: 期间
+    validation_type: amount_compare
+    requires_template_upload: true
+    source_report_keys:
+    - balance_sheet
+    - income_statement
+    key_items:
+    - 归属于母公司股东权益合计
+    - 股东权益合计
+  central_bank_cash:
+    display_name: 五、1 现金及存放中央银行款项
+    rule_keyword: 五、1 现金及存放中央银行款项
+    detail_generator: central_bank_cash
+    pdf_parse_type: note_table
+    pdf_item_aliases:
+      库存现金:
+      - 库存现金
+      法定存款准备金:
+      - 法定存款准备金
+      超额存款准备金:
+      - 超额存款准备金
+      其他存放中央银行款项:
+      - 其他存放中央银行款项
+      现金及存放中央银行款项:
+      - 合计
+      - 现金及存放中央银行款项
+      人民币存款缴存比率:
+      - 人民币存款缴存比率
+      外币存款缴存比率:
+      - 外币存款缴存比率
+    pdf_keywords:
+    - 现金及存放中央银行款项
+    - 存放中央银行款项
+    - 现金及存放中央银行
+    output_prefix: 现金及存放中央银行款项
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 库存现金
+    - 法定存款准备金
+    - 超额存款准备金
+    - 其他存放中央银行款项
+    - 现金及存放中央银行款项
+    - 人民币存款缴存比率
+    - 外币存款缴存比率
+  deposits_with_banks:
+    display_name: 五、2 存放同业及其他金融机构款项
+    rule_keyword: 五、2 存放同业及其他金融机构款项
+    detail_generator: interbank_deposits
+    pdf_parse_type: note_table
+    pdf_item_aliases:
+      存放中国境内银行款项:
+      - 中国境内-银行
+      - 中国境内 - 银行
+      存放中国境内其他金融机构款项:
+      - 中国境内-其他金融机构
+      - 中国境内 - 其他金融机构
+      存放中国境外银行款项:
+      - 中国境外-银行
+      - 中国境外 - 银行
+      存放中国境外其他金融机构款项:
+      - 中国境外-其他金融机构
+      - 中国境外 - 其他金融机构
+      存放同业及其他金融机构款项减值准备:
+      - 减：减值准备
+      - 减:减值准备
+      - 减值准备
+      存放同业及其他金融机构款项账面余额:
+      - 小计
+      存放同业及其他金融机构款项:
+      - 合计
+      - 存放同业及其他金融机构款项
+    pdf_keywords:
+    - 存放同业及其他金融机构款项
+    - 存放同业
+    - 存放其他金融机构
+    output_prefix: 存放同业及其他金融机构款项
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 存放中国境内银行款项
+    - 存放中国境内其他金融机构款项
+    - 存放中国境外银行款项
+    - 存放中国境外其他金融机构款项
+    - 存放同业及其他金融机构款项减值准备
+    - 存放同业及其他金融机构款项账面余额
+    - 存放同业及其他金融机构款项
+  placements_with_banks:
+    display_name: 五、3 拆出资金
+    rule_keyword: 五、3 拆出资金
+    pdf_parse_type: note_table
+    pdf_item_aliases:
+      拆出中国境内银行资金:
+      - 中国境内-银行
+      - 中国境内 - 银行
+      拆出中国境内其他金融机构资金:
+      - 中国境内-其他金融机构
+      - 中国境内 - 其他金融机构
+      拆出中国境外银行资金:
+      - 中国境外-银行
+      - 中国境外 - 银行
+      拆出中国境外其他金融机构资金:
+      - 中国境外-其他金融机构
+      - 中国境外 - 其他金融机构
+      拆出资金减值准备:
+      - 减：减值准备
+      - 减:减值准备
+      拆出资金:
+      - 合计
+      - 拆出资金
+    pdf_keywords:
+    - 拆出资金
+    - 拆放同业
+    - 拆放其他金融机构
+    output_prefix: 拆出资金
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 拆出中国境内银行资金
+    - 拆出中国境内其他金融机构资金
+    - 拆出中国境外银行资金
+    - 拆出中国境外其他金融机构资金
+    - 拆出资金减值准备
+    - 拆出资金
+  other_assets:
+    display_name: 其他资产
+    rule_keyword: 五、13-1 其他资产
+    pdf_parse_type: note_table
+    pdf_item_aliases:
+      其他资产-其他:
+      - 其他
+      其他资产减值准备:
+      - 减：减值准备
+      其他资产:
+      - 合计
+    pdf_keywords:
+    - 其他资产
+    - 其他应收款
+    - 留抵税额
+    - 抵债资产
+    - 长期待摊费用
+    output_prefix: 其他资产
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 其他应收款
+    - 留抵税额
+    - 待清算及结算款项
+    - 抵债资产
+    - 长期待摊费用
+    - 其他资产-其他
+    - 其他资产减值准备
+    - 其他资产
+  other_liabilities:
+    display_name: 其他负债
+    rule_keyword: 五、25-1 其他负债
+    pdf_parse_type: note_table
+    pdf_item_aliases:
+      其他负债:
+      - 合计
+    pdf_keywords:
+    - 其他负债
+    - 其他应付款
+    - 应付股利
+    - 应付票据
+    - 递延收益
+    - 长期借款
+    - 合同负债
+    output_prefix: 其他负债
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 其他应付款
+    - 应付股利
+    - 应付票据
+    - 递延收益
+    - 长期借款
+    - 合同负债
+    - 其他负债
+  long_term_equity_investment:
+    display_name: 长期股权投资
+    rule_keyword: 五、8-1 长期股权投资
+    pdf_parse_type: note_table
+    pdf_item_aliases:
+      对子公司的投资:
+      - 对子公司
+      - 对子公司的投资
+      对联营企业的投资:
+      - 对联营企业
+      - 对联营企业的投资
+      长期股权投资:
+      - 合计
+      - 长期股权投资
+    pdf_keywords:
+    - 长期股权投资
+    - 对子公司的投资
+    - 对联营企业的投资
+    output_prefix: 长期股权投资
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 对子公司的投资
+    - 对联营企业的投资
+    - 长期股权投资
+  long_term_equity_investment_subsidiary_investment:
+    display_name: 五、8-2 长期股权投资-对子公司的投资
+    rule_keyword: 五、8-2 长期股权投资-对子公司的投资
+    detail_generator: long_term_subsidiary
+    detail_report_type: subsidiary_investment
+    pdf_keywords:
+    - 长期股权投资
+    - 对子公司的投资
+    - 子公司名称
+    output_prefix: 长期股权投资-对子公司的投资
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 子公司名称
+    - 当年投资金额
+    - 合计
+  long_term_equity_investment_subsidiary_control:
+    display_name: 五、8-4 长期股权投资-主要子公司持股比例及控制权情况表
+    rule_keyword: 五、8-4 长期股权投资-主要子公司持股比例及控制权情况表
+    detail_generator: long_term_subsidiary
+    detail_report_type: subsidiary_control
+    pdf_keywords:
+    - 在子公司及纳入合并范围内的结构化主体中的权益
+    - 通过设立方式直接持有的主要子公司
+    - 本行持股比例
+    - 本行表决权比例
+    - 注册资本
+    output_prefix: 长期股权投资-主要子公司持股比例及控制权情况表
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 子公司名称
+    - 本行持股比例
+    - 本行表决权比例
+    - 注册资本

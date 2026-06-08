@@ -1,0 +1,211 @@
+project:
+  name: financial_report_control_poc
+  scope: 重庆农商行 2025 年资产负债表校验
+upload_files:
+  base_files:
+  - file_key: subject_balance
+    display_name: 1-1-20251231科目余额表.xlsx
+    required: true
+    prefix: 1-1-
+    file_type: xlsx
+    description: 重庆农商行 2025 年科目余额表基础数据文件
+  - file_key: audit_adjustment_parent
+    display_name: 1-2-20251231审计调整_底稿_本行.xlsx
+    required: true
+    prefix: 1-2-
+    file_type: xlsx
+    description: 本行审计调整底稿文件
+  - file_key: audit_adjustment_subsidiary
+    display_name: 1-3-20251231审计调整_底稿_子公司.xlsx
+    required: true
+    prefix: 1-3-
+    file_type: xlsx
+    description: 子公司审计调整底稿文件
+  - file_key: consolidation_elimination
+    display_name: 1-4-20251231审计调整_合并抵消底稿.xlsx
+    required: true
+    prefix: 1-4-
+    file_type: xlsx
+    description: 合并抵消审计调整底稿文件
+  - file_key: subsidiary_subject_balance
+    display_name: 1-5-20251231子公司科目余额表.xlsx
+    required: false
+    prefix: 1-5-
+    file_type: xlsx
+    description: 子公司 2025 年科目余额表基础数据文件
+  - file_key: subsidiary_institution_mapping
+    display_name: 1-6-20251231子公司机构映射表.xlsx
+    required: false
+    prefix: 1-6-
+    file_type: xlsx
+    description: 子公司机构编号与机构名称映射表
+  - file_key: subsidiary_shareholding_ratio
+    display_name: 1-7-20251231子公司持股比例.xlsx
+    required: false
+    prefix: 1-7-
+    file_type: xlsx
+    description: 子公司持股比例基础数据文件
+  - file_key: subsidiary_income_statement
+    display_name: 1-8-20251231子公司利润表.xlsx
+    required: false
+    prefix: 1-8-
+    file_type: xlsx
+    description: 子公司利润表基础数据文件
+  - file_key: perpetual_bond_detail
+    display_name: 1-9-20251231永续债明细表.xlsx
+    required: false
+    prefix: 1-9-
+    file_type: xlsx
+    description: 永续债明细表基础数据文件
+  - file_key: oci_detail
+    display_name: 1_10_20251231_OCI.xlsx
+    required: false
+    prefix: '1_10_'
+    file_type: xlsx
+    description: OCI 基础数据文件
+  - file_key: long_term_investment_subsidiary_data
+    display_name: 1-11-20251231长投子公司数据.xlsx
+    required: false
+    prefix: 1-11-
+    file_type: xlsx
+    description: 长期股权投资对子公司明细数据文件，上传后校验 B0490 当年投资金额合计与 B0487 指标数据是否一致
+  - file_key: parent_subject_balance
+    display_name: 1-12-20251231本行科目余额表.xlsx
+    required: false
+    prefix: 1-12-
+    file_type: xlsx
+    description: 本行 2025 年科目余额表基础数据文件
+  - file_key: profit_distribution_proposal
+    display_name: 1-13-20251231关于审议重庆农村商业银行股份有限公司2025年度利润分配方案的议案.docx
+    required: false
+    prefix: 1-13-
+    file_type: docx
+    description: 2025 年度利润分配方案议案基础数据文件
+  - file_key: disclosure_consolidation_structure_chart
+    display_name: 1-14-中国东方资产集团信息披露合并架构图
+    required: false
+    prefix: 1-14-
+    file_type:
+    - png
+    - jpg
+    - jpeg
+    - pdf
+    - docx
+    - xlsx
+    description: 中国东方资产集团信息披露合并架构图文件
+  - file_key: central_bank_deposit_tenday
+    display_name: 5-1-1-1-1231存放中央银行款项_旬报表.xlsx
+    required: false
+    prefix: 5-1-1-1-1231
+    file_type: xlsx
+    description: 存放中央银行款项旬报表
+  - file_key: interbank_deposit_parent
+    display_name: 5-2-1-1-1231存放同业明细母行.xlsx
+    required: false
+    prefix: 5-2-1-1-1231
+    file_type: xlsx
+    description: 存放同业明细母行
+  - file_key: interbank_deposit_risk
+    display_name: 5-2-2-1-1231存放同业风险明细.xlsx
+    required: false
+    prefix: 5-2-2-1-1231
+    file_type: xlsx
+    description: 存放同业风险明细
+  - file_key: interbank_deposit_yujinzu
+    display_name: 5-2-1-2-1231存放同业明细渝金租.xlsx
+    required: false
+    prefix: 5-2-1-2-1231
+    file_type: xlsx
+    description: 存放同业明细渝金租
+  - file_key: interbank_deposit_yulicai
+    display_name: 5-2-1-3-1231存放同业明细渝理财.xlsx
+    required: false
+    prefix: 5-2-1-3-1231
+    file_type: xlsx
+    description: 存放同业明细渝理财
+  - file_key: interbank_deposit_yunnan_xishan
+    display_name: 5-2-1-4-1231存放同业明细云南西山.xlsx
+    required: false
+    prefix: 5-2-1-4-1231
+    file_type: xlsx
+    description: 存放同业明细云南西山
+  - file_key: interbank_deposit_fujian_shishi
+    display_name: 5-2-1-5-1231存放同业明细福建石狮.xlsx
+    required: false
+    prefix: 5-2-1-5-1231
+    file_type: xlsx
+    description: 存放同业明细福建石狮
+  - file_key: interbank_deposit_yunnan_heqing
+    display_name: 5-2-1-6-1231存放同业明细云南鹤庆.xlsx
+    required: false
+    prefix: 5-2-1-6-1231
+    file_type: xlsx
+    description: 存放同业明细云南鹤庆
+  - file_key: interbank_deposit_fujian_pingtan
+    display_name: 5-2-1-7-1231存放同业明细福建平潭.xlsx
+    required: false
+    prefix: 5-2-1-7-1231
+    file_type: xlsx
+    description: 存放同业明细福建平潭
+  - file_key: interbank_deposit_jiangsu_zhangjiagang
+    display_name: 5-2-1-8-1231存放同业明细江苏张家港.xlsx
+    required: false
+    prefix: 5-2-1-8-1231
+    file_type: xlsx
+    description: 存放同业明细江苏张家港
+  - file_key: interbank_deposit_sichuan_dazhu
+    display_name: 5-2-1-9-1231存放同业明细四川大竹.xlsx
+    required: false
+    prefix: 5-2-1-9-1231
+    file_type: xlsx
+    description: 存放同业明细四川大竹
+  - file_key: interbank_deposit_yunnan_xiangyun
+    display_name: 5-2-1-10-1231存放同业明细云南祥云.xlsx
+    required: false
+    prefix: 5-2-1-10-1231
+    file_type: xlsx
+    description: 存放同业明细云南祥云
+  - file_key: interbank_deposit_guangxi_luzhai
+    display_name: 5-2-1-11-1231存放同业明细广西鹿寨.xlsx
+    required: false
+    prefix: 5-2-1-11-1231
+    file_type: xlsx
+    description: 存放同业明细广西鹿寨
+  - file_key: interbank_deposit_yunnan_shangrila
+    display_name: 5-2-1-12-1231存放同业明细云南香格里拉.xlsx
+    required: false
+    prefix: 5-2-1-12-1231
+    file_type: xlsx
+    description: 存放同业明细云南香格里拉
+  - file_key: interbank_deposit_yunnan_dali
+    display_name: 5-2-1-13-1231存放同业明细云南大理.xlsx
+    required: false
+    prefix: 5-2-1-13-1231
+    file_type: xlsx
+    description: 存放同业明细云南大理
+  - file_key: interbank_deposit_fujian_fuan
+    display_name: 5-2-1-14-1231存放同业明细福建福安.xlsx
+    required: false
+    prefix: 5-2-1-14-1231
+    file_type: xlsx
+    description: 存放同业明细福建福安
+  - file_key: interbank_deposit_fujian_shaxian
+    display_name: 5-2-1-15-1231存放同业明细福建沙县.xlsx
+    required: false
+    prefix: 5-2-1-15-1231
+    file_type: xlsx
+    description: 存放同业明细福建沙县
+  rule_files:
+  - file_key: report_indicator_rules
+    display_name: 2-1-报表指标-加工规则.xlsx
+    required: true
+    prefix: 2-1-
+    file_type: xlsx
+    description: 资产负债表报表指标加工规则文件
+  pdf_files:
+  - file_key: annual_report_pdf
+    display_name: 4-1-重庆农村商业银行股份有限公司2025年年度报告.pdf
+    required: true
+    prefix: 4-1-
+    file_type: pdf
+    description: 重庆农村商业银行股份有限公司 2025 年年度报告 PDF 文件

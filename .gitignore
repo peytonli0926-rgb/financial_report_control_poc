@@ -1,0 +1,36 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Logs and local runtime output
+*.log
+streamlit_check.*.log
+
+# Local/generated recovery artifacts
+app_recovered_full.cpython-314.pyc
+localhistory_extract.txt
+code_objects.txt
+recovered_app.py
+
+# Local secrets / environment-specific access config
+/config/access_control.json
+
+# Local financial/input/generated data; keep code portable and avoid publishing sensitive files
+/data/upload/
+/data/output/
+/input/
