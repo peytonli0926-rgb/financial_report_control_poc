@@ -36,6 +36,48 @@ AMOUNT_PATTERN = re.compile(
 )
 PERCENT_PATTERN = re.compile(r"(?P<percent>-?\d+(?:\.\d+)?)\s*%")
 
+DERIVATIVE_NOMINAL_ITEM_LABELS = {
+    "贵金属掉期名义金额": "贵金属掉期",
+    "外汇掉期名义金额": "其中：外汇掉期",
+    "货币远期外汇名义金额": "货币远期",
+    "信用风险缓释工具名义金额": "信用风险缓释工具",
+    "利率互换名义金额": "其中：利率互换",
+    "衍生金融工具名义金额": "合计",
+}
+
+DERIVATIVE_NOMINAL_PARENT_ITEMS = {
+    "货币衍生工具名义金额": ("货币远期外汇名义金额", "外汇掉期名义金额"),
+    "利率衍生工具名义金额": ("利率互换名义金额",),
+}
+
+DERIVATIVE_ASSET_ITEM_LABELS = {
+    "贵金属掉期公允价值资产": "贵金属掉期",
+    "外汇掉期公允价值资产": "其中：外汇掉期",
+    "货币远期外汇公允价值资产": "货币远期",
+    "信用风险缓释工具公允价值资产": "信用风险缓释工具",
+    "利率互换公允价值资产": "其中：利率互换",
+    "衍生金融工具公允价值资产": "合计",
+}
+
+DERIVATIVE_ASSET_PARENT_ITEMS = {
+    "货币衍生工具公允价值资产": ("货币远期外汇公允价值资产", "外汇掉期公允价值资产"),
+    "利率衍生工具公允价值资产": ("利率互换公允价值资产",),
+}
+
+DERIVATIVE_LIABILITY_ITEM_LABELS = {
+    "贵金属掉期公允价值负债": "贵金属掉期",
+    "外汇掉期公允价值负债": "其中：外汇掉期",
+    "货币远期外汇公允价值负债": "货币远期",
+    "信用风险缓释工具公允价值负债": "信用风险缓释工具",
+    "利率互换公允价值负债": "其中：利率互换",
+    "衍生金融工具公允价值负债": "合计",
+}
+
+DERIVATIVE_LIABILITY_PARENT_ITEMS = {
+    "货币衍生工具公允价值负债": ("货币远期外汇公允价值负债", "外汇掉期公允价值负债"),
+    "利率衍生工具公允价值负债": ("利率互换公允价值负债",),
+}
+
 
 def extract_pdf_text(pdf_path: str | Path) -> list[dict[str, Any]]:
     """Extract text from every page in a PDF with 1-based page numbers."""
@@ -197,10 +239,12 @@ def parse_note_table_amounts_from_text(
     text: str | list[dict[str, Any]],
     item_names: list[str] | tuple[str, ...],
     item_aliases: dict[str, list[str]] | None = None,
+    note_title_keyword: str | None = None,
 ) -> pd.DataFrame:
     """Parse one-column note tables where each row label is followed by current/prior amounts."""
     page_texts = _normalize_text_input(text)
     aliases_by_item = item_aliases or {}
+    title_keyword = str(note_title_keyword or "").strip() or _infer_note_title_keyword(item_names)
     all_aliases = [
         alias
         for item_name in item_names
@@ -208,10 +252,23 @@ def parse_note_table_amounts_from_text(
     ]
     page_texts = sorted(
         page_texts,
-        key=lambda page: _note_table_alias_score(page["text"], all_aliases),
+        key=lambda page: (
+            _note_table_title_score(page["text"], str(note_title_keyword or "")),
+            _note_table_alias_score(page["text"], all_aliases),
+        ),
         reverse=True,
     )
+    if title_keyword:
+        best_title_score = max((_note_table_title_score(page["text"], title_keyword) for page in page_texts), default=0)
+        if best_title_score > 0:
+            page_texts = [
+                page
+                for page in page_texts
+                if _note_table_title_score(page["text"], title_keyword) == best_title_score
+            ]
     rows: list[dict[str, Any]] = []
+    derivative_note_rows = _parse_derivative_special_note_rows(page_texts, [str(item_name) for item_name in item_names])
+    reverse_repo_note_rows = _parse_reverse_repo_special_note_rows(page_texts, [str(item_name) for item_name in item_names])
 
     for item_name in [str(item_name) for item_name in item_names]:
         matched_page_no: int | None = None
@@ -220,18 +277,31 @@ def parse_note_table_amounts_from_text(
         parent_amount: float | None = None
         aliases = aliases_by_item.get(item_name) or [item_name]
 
-        for page in page_texts:
-            if "缴存比率" in item_name:
-                parsed = _find_percentage_item_value(page["text"], aliases)
-            else:
-                parsed = _find_note_table_item_amount(page["text"], aliases)
-            if parsed is None:
-                continue
-            matched_page_no = page["page_no"]
+        if item_name in derivative_note_rows:
+            parsed = derivative_note_rows[item_name]
+            matched_page_no = parsed["page_no"]
             matched_line = parsed["raw_text"]
             group_amount = parsed["group_amount"]
             parent_amount = parsed["parent_amount"]
-            break
+        elif item_name in reverse_repo_note_rows:
+            parsed = reverse_repo_note_rows[item_name]
+            matched_page_no = parsed["page_no"]
+            matched_line = parsed["raw_text"]
+            group_amount = parsed["group_amount"]
+            parent_amount = parsed["parent_amount"]
+        else:
+            for page in page_texts:
+                if "缴存比率" in item_name:
+                    parsed = _find_percentage_item_value(page["text"], aliases)
+                else:
+                    parsed = _find_note_table_item_amount(page["text"], aliases)
+                if parsed is None:
+                    continue
+                matched_page_no = page["page_no"]
+                matched_line = parsed["raw_text"]
+                group_amount = parsed["group_amount"]
+                parent_amount = parsed["parent_amount"]
+                break
 
         rows.append(
             {
@@ -253,6 +323,270 @@ def parse_note_table_amounts_from_text(
             "PDF原始行文本",
         ],
     )
+
+
+def _infer_note_title_keyword(item_names: list[str] | tuple[str, ...]) -> str:
+    compact_items = {_compact_text(str(item_name or "")) for item_name in item_names}
+    if any(item.startswith(_compact_text("\u5176\u4ed6\u503a\u6743\u6295\u8d44-")) for item in compact_items):
+        return "(3) \u5176\u4ed6\u503a\u6743\u6295\u8d44"
+    if any(item.startswith(_compact_text("\u503a\u6743\u6295\u8d44-")) for item in compact_items):
+        return "(2) \u503a\u6743\u6295\u8d44"
+    return ""
+
+
+def _parse_reverse_repo_special_note_rows(
+    page_texts: list[dict[str, Any]],
+    item_names: list[str],
+) -> dict[str, dict[str, Any]]:
+    requested = set(item_names)
+    reverse_repo_items = {
+        "买入返售债券",
+        "买入返售金融资产减值准备",
+        "买入返售金融资产",
+    }
+    if not requested.intersection(reverse_repo_items):
+        return {}
+
+    target_page = _find_reverse_repo_note_page(page_texts)
+    if target_page is None:
+        return {}
+    note_text = _reverse_repo_note_segment(target_page["text"])
+
+    label_by_item = {
+        "买入返售债券": ["买入返售债券"],
+        "买入返售金融资产减值准备": ["减：减值准备", "减:减值准备", "减值准备"],
+        "买入返售金融资产": ["合计"],
+    }
+    parsed_values: dict[str, dict[str, Any]] = {}
+    for item_name, aliases in label_by_item.items():
+        if item_name not in requested:
+            continue
+        parsed = _find_note_table_item_amount(note_text, aliases)
+        if parsed is None:
+            continue
+        parsed_values[item_name] = {
+            "page_no": target_page["page_no"],
+            "group_amount": parsed["group_amount"],
+            "parent_amount": parsed["parent_amount"],
+            "raw_text": parsed["raw_text"],
+        }
+    return parsed_values
+
+
+def _reverse_repo_note_segment(text: str) -> str:
+    lines = [_normalize_line(line) for line in str(text or "").splitlines() if line.strip()]
+    start_index = 0
+    for index, line in enumerate(lines):
+        if _compact_text(line) == "买入返售金融资产":
+            start_index = index
+            break
+
+    segment_lines: list[str] = []
+    for line in lines[start_index:]:
+        compact_line = _compact_text(line)
+        if segment_lines and compact_line == "发放贷款和垫款":
+            break
+        segment_lines.append(line)
+        if compact_line == "合计":
+            # Keep the four values after 合计.
+            continue
+        if len(segment_lines) > 1 and segment_lines[-2] == "合计":
+            pass
+    return "\n".join(segment_lines)
+
+
+def _find_reverse_repo_note_page(page_texts: list[dict[str, Any]]) -> dict[str, Any] | None:
+    candidates: list[tuple[int, dict[str, Any]]] = []
+    required_tokens = ("买入返售金融资产", "买入返售债券", "减值准备")
+    for page in page_texts:
+        text = str(page.get("text") or "")
+        score = sum(1 for token in required_tokens if token in text)
+        if score >= 2:
+            candidates.append((score, page))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[0][1]
+
+
+def _parse_derivative_special_note_rows(
+    page_texts: list[dict[str, Any]],
+    item_names: list[str],
+) -> dict[str, dict[str, Any]]:
+    requested = set(item_names)
+    derivative_items = (
+        set(DERIVATIVE_NOMINAL_ITEM_LABELS)
+        | set(DERIVATIVE_NOMINAL_PARENT_ITEMS)
+        | set(DERIVATIVE_ASSET_ITEM_LABELS)
+        | set(DERIVATIVE_ASSET_PARENT_ITEMS)
+        | set(DERIVATIVE_LIABILITY_ITEM_LABELS)
+        | set(DERIVATIVE_LIABILITY_PARENT_ITEMS)
+    )
+    if not requested.intersection(derivative_items):
+        return {}
+
+    target_page = _find_derivative_note_page(page_texts)
+    if target_page is None:
+        return {}
+
+    parsed_values: dict[str, dict[str, Any]] = {}
+    for item_name, label in DERIVATIVE_NOMINAL_ITEM_LABELS.items():
+        if item_name not in requested and item_name not in _parent_child_items_for_requested(requested, DERIVATIVE_NOMINAL_PARENT_ITEMS):
+            continue
+        parsed = _find_derivative_table_label_amount(target_page["text"], label, value_index=0)
+        if parsed is None:
+            continue
+        parsed_values[item_name] = _derivative_pdf_row(target_page, parsed)
+
+    for item_name, label in DERIVATIVE_ASSET_ITEM_LABELS.items():
+        if item_name not in requested and item_name not in _parent_child_items_for_requested(requested, DERIVATIVE_ASSET_PARENT_ITEMS):
+            continue
+        parsed = _find_derivative_table_label_amount(target_page["text"], label, value_index=1)
+        if parsed is None:
+            continue
+        parsed_values[item_name] = _derivative_pdf_row(target_page, parsed)
+
+    for item_name, label in DERIVATIVE_LIABILITY_ITEM_LABELS.items():
+        if item_name not in requested and item_name not in _parent_child_items_for_requested(requested, DERIVATIVE_LIABILITY_PARENT_ITEMS):
+            continue
+        parsed = _find_derivative_table_label_amount(target_page["text"], label, value_index=2)
+        if parsed is None:
+            continue
+        parsed_values[item_name] = _derivative_pdf_row(target_page, parsed)
+
+    for item_name, child_items in DERIVATIVE_NOMINAL_PARENT_ITEMS.items():
+        if item_name not in requested:
+            continue
+        parent_row = _derivative_parent_pdf_row(target_page, item_name, child_items, parsed_values)
+        if parent_row is not None:
+            parsed_values[item_name] = parent_row
+
+    for item_name, child_items in DERIVATIVE_ASSET_PARENT_ITEMS.items():
+        if item_name not in requested:
+            continue
+        parent_row = _derivative_parent_pdf_row(target_page, item_name, child_items, parsed_values)
+        if parent_row is not None:
+            parsed_values[item_name] = parent_row
+
+    for item_name, child_items in DERIVATIVE_LIABILITY_PARENT_ITEMS.items():
+        if item_name not in requested:
+            continue
+        parent_row = _derivative_parent_pdf_row(target_page, item_name, child_items, parsed_values)
+        if parent_row is not None:
+            parsed_values[item_name] = parent_row
+
+    return {item_name: row for item_name, row in parsed_values.items() if item_name in requested}
+
+
+def _derivative_pdf_row(page: dict[str, Any], parsed: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "page_no": page["page_no"],
+        "group_amount": parsed["amount"],
+        "parent_amount": parsed["amount"],
+        "raw_text": parsed["raw_text"],
+    }
+
+
+def _derivative_parent_pdf_row(
+    page: dict[str, Any],
+    item_name: str,
+    child_items: tuple[str, ...],
+    parsed_values: dict[str, dict[str, Any]],
+) -> dict[str, Any] | None:
+    if item_name in {
+        "货币衍生工具名义金额",
+        "货币衍生工具公允价值资产",
+        "货币衍生工具公允价值负债",
+    }:
+        return {
+            "page_no": page["page_no"],
+            "group_amount": 0.0,
+            "parent_amount": 0.0,
+            "raw_text": f"{item_name} | -",
+        }
+    child_values = [parsed_values.get(child_item, {}).get("group_amount") for child_item in child_items]
+    if any(value is None for value in child_values):
+        return None
+    amount = float(sum(float(value or 0) for value in child_values))
+    raw_text = " + ".join(
+        parsed_values.get(child_item, {}).get("raw_text", child_item)
+        for child_item in child_items
+    )
+    return {
+        "page_no": page["page_no"],
+        "group_amount": amount,
+        "parent_amount": amount,
+        "raw_text": f"{item_name} = {raw_text}",
+    }
+
+
+def _parent_child_items_for_requested(
+    requested: set[str],
+    parent_items: dict[str, tuple[str, ...]],
+) -> set[str]:
+    child_items: set[str] = set()
+    for parent_item, children in parent_items.items():
+        if parent_item in requested:
+            child_items.update(children)
+    return child_items
+
+
+def _find_derivative_note_page(page_texts: list[dict[str, Any]]) -> dict[str, Any] | None:
+    candidates: list[tuple[int, dict[str, Any]]] = []
+    required_tokens = ("衍生金融工具", "名义金额", "贵金属掉期", "信用风险缓释工具")
+    for page in page_texts:
+        text = str(page.get("text") or "")
+        score = sum(1 for token in required_tokens if token in text)
+        if score >= 3:
+            candidates.append((score, page))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[0][1]
+
+
+def _find_derivative_table_label_amount(text: str, label: str, value_index: int) -> dict[str, Any] | None:
+    lines = [_normalize_line(line) for line in text.splitlines() if line.strip()]
+    compact_label = _compact_text(label)
+    for index, line in enumerate(lines):
+        if _compact_text(line) != compact_label:
+            continue
+        raw_lines = [line]
+        values: list[float] = []
+        for next_line in lines[index + 1 : index + 8]:
+            normalized_next = _normalize_line(next_line)
+            compact_next = _compact_text(normalized_next)
+            if compact_next in _derivative_table_label_compacts():
+                break
+            if compact_next in {"货币衍生工具", "利率衍生工具"}:
+                break
+            raw_lines.append(normalized_next)
+            extracted = _extract_derivative_table_values(normalized_next)
+            if extracted:
+                values.extend(float(value or 0) for value in extracted)
+        if len(values) > value_index:
+            return {"amount": values[value_index], "raw_text": " | ".join(raw_lines)}
+    return None
+
+
+def _extract_derivative_table_values(line: str) -> list[float]:
+    stripped = line.strip()
+    if stripped in {"-", "－", "—"}:
+        return [0.0]
+    return [
+        float(value)
+        for value in (_parse_amount(match.group("amount")) for match in AMOUNT_PATTERN.finditer(stripped))
+        if value is not None
+    ]
+
+
+def _derivative_table_label_compacts() -> set[str]:
+    labels = (
+        set(DERIVATIVE_NOMINAL_ITEM_LABELS.values())
+        | set(DERIVATIVE_ASSET_ITEM_LABELS.values())
+        | set(DERIVATIVE_LIABILITY_ITEM_LABELS.values())
+    )
+    return {_compact_text(value) for value in labels}
 
 
 def _find_percentage_item_value(text: str, aliases: list[str]) -> dict[str, Any] | None:
@@ -462,13 +796,40 @@ def _find_multiline_note_table_item_amount(
 def _note_label_matches_alias(compact_label: str, compact_aliases: set[str]) -> bool:
     if compact_label in compact_aliases:
         return True
+    normalized_label = _normalize_note_label_for_alias(compact_label)
     for alias in compact_aliases:
-        if alias and compact_label.endswith(alias):
+        normalized_alias = _normalize_note_label_for_alias(alias)
+        if normalized_alias and normalized_label == normalized_alias:
             return True
+        if alias and compact_label.endswith(alias):
+            prefix = compact_label[: -len(alias)]
+            if prefix and prefix[-1] in "-－—_:：/、(":
+                return True
+            if not prefix:
+                return True
+        if normalized_alias and compact_label.endswith(normalized_alias):
+            prefix = compact_label[: -len(normalized_alias)]
+            if prefix and prefix[-1] in "-－—_:：/、(":
+                return True
+            if not prefix:
+                return True
+        if normalized_alias and normalized_label.endswith(normalized_alias):
+            prefix = normalized_label[: -len(normalized_alias)]
+            if prefix and prefix[-1] in "-－—_:：/、(":
+                return True
+            if not prefix:
+                return True
         if alias and "存放中央银行款项" in alias and "其他" in alias:
             if "存放中央银行款项" in compact_label and "其他" in compact_label:
                 return True
     return False
+
+
+def _normalize_note_label_for_alias(value: str) -> str:
+    label = _compact_text(value)
+    label = re.sub(r"^[-－—_:/、:：]+", "", label)
+    label = re.sub(r"^\(?\d+\)?[.、．]?", "", label)
+    return label
 
 
 def _inherited_note_table_label_prefix(lines: list[str], index: int) -> list[str]:
@@ -580,6 +941,22 @@ def _line_starts_other_detail_item(
 def _note_table_alias_score(text: str, aliases: list[str]) -> int:
     compact_text = _compact_text(text)
     return sum(1 for alias in aliases if _compact_text(alias) in compact_text)
+
+
+def _note_table_title_score(text: str, title_keyword: str) -> int:
+    compact_title = _compact_text(title_keyword)
+    if not compact_title:
+        return 0
+    compact_lines = [_compact_text(line) for line in str(text or "").splitlines() if str(line).strip()]
+    if compact_title in compact_lines:
+        return 3
+    compact_text = _compact_text(text)
+    if compact_title in compact_text:
+        return 2
+    title_parts = [_compact_text(part) for part in re.split(r"\s+", str(title_keyword or "")) if _compact_text(part)]
+    if title_parts and all(part in compact_text for part in title_parts):
+        return 1
+    return 0
 
 
 def _select_report_page_numbers(

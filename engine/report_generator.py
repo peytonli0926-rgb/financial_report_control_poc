@@ -56,6 +56,14 @@ def build_report_from_rules(
             kwargs = dict(calculator_kwargs or {})
             if report_period:
                 kwargs.setdefault("report_period", report_period)
+            if "subject_balance_prefix" not in kwargs:
+                inferred_prefix = _infer_subject_balance_prefix(
+                    institution_name=institution_name,
+                    institution_code=institution_code,
+                    institution_scope=institution_scope,
+                )
+                if inferred_prefix:
+                    kwargs["subject_balance_prefix"] = inferred_prefix
             initial_values = dict(reusable_metrics or {})
             initial_values.update(kwargs.pop("initial_values", {}) or {})
             if initial_values:
@@ -120,6 +128,25 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 def _normalize_text(value: Any) -> str:
     return " ".join(str(value).replace("\r", " ").replace("\n", " ").split())
+
+
+def _infer_subject_balance_prefix(
+    institution_name: str | None = None,
+    institution_code: str | None = None,
+    institution_scope: str | None = None,
+) -> str | None:
+    context_text = " ".join(
+        _normalize_text(value)
+        for value in (institution_name, institution_code, institution_scope)
+        if value
+    )
+    if any(keyword in context_text for keyword in ("本行", "母行", "PARENT")):
+        return "1-12-"
+    if any(keyword in context_text for keyword in ("集团", "合并", "GROUP")):
+        return "1-1-"
+    if any(keyword in context_text for keyword in ("子公司", "SUBSIDIARY")):
+        return "1-5-"
+    return None
 
 
 def _find_amount_column(

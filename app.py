@@ -43,6 +43,39 @@ render_top_user_bar = _app["render_top_user_bar"]
 render_workflow_home = _app["render_workflow_home"]
 
 
+MENU_LABEL_REPLACEMENTS = [
+    ("报表校验及发布", "智能校验与发布"),
+    ("所有者权益变动表", "权益变动智能视图"),
+    ("资产负债表", "资产负债智能视图"),
+    ("上传文件", "数据接入中心"),
+    ("上传规则", "规则编排中心"),
+    ("生成报表", "AI 报表生成"),
+    ("发布报表", "智能校验与发布"),
+    ("查看报表", "报表洞察中心"),
+    ("财务报表", "核心财报总览"),
+    ("财务报告", "核心财报总览"),
+    ("制作报表", "智能报表工厂"),
+    ("报表制作", "智能报表工厂"),
+    ("利润表", "经营成果智能视图"),
+    ("报表附注", "附注披露中心"),
+    ("工作台首页", "智能驾驶舱"),
+    ("首页", "智能驾驶舱"),
+]
+
+
+def _rename_menu_labels(value):
+    if isinstance(value, str):
+        renamed = value
+        for old_label, new_label in MENU_LABEL_REPLACEMENTS:
+            renamed = renamed.replace(old_label, new_label)
+        return renamed
+    if isinstance(value, list):
+        return [_rename_menu_labels(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_rename_menu_labels(item) for item in value)
+    return value
+
+
 def render_product_header(title: str, subtitle: str, badge: str) -> None:
     return None
 
@@ -345,7 +378,10 @@ FILE_SOURCE_ALIASES = {
     "oci_detail": ["OCI\u8868", "OCI"],
     "long_term_investment_subsidiary_data": ["\u957f\u6295\u5b50\u516c\u53f8\u6570\u636e", "\u957f\u671f\u80a1\u6743\u6295\u8d44\u5bf9\u5b50\u516c\u53f8\u660e\u7ec6\u6570\u636e"],
     "profit_distribution_proposal": ["\u5229\u6da6\u5206\u914d\u65b9\u6848", "\u5229\u6da6\u5206\u914d\u65b9\u6848\u8bae\u6848"],
-    "disclosure_consolidation_structure_chart": ["\u4e2d\u56fd\u4e1c\u65b9\u8d44\u4ea7\u96c6\u56e2\u4fe1\u606f\u62ab\u9732\u5408\u5e76\u67b6\u6784\u56fe", "\u5408\u5e76\u67b6\u6784\u56fe"],
+    "derivative_fx_forward_position": ["外汇远期持仓表", "外汇远期", "5-4-1-1"],
+    "derivative_fx_swap_position": ["外汇掉期持仓表", "外汇掉期", "5-4-1-2"],
+    "derivative_gold_swap_position": ["黄金掉期持仓表", "黄金掉期", "5-4-1-3"],
+    "derivative_crmw_audit_valuation": ["P&L-CRMW-审计估值", "CRMW", "审计估值", "5-4-1-4"],
     "central_bank_deposit_tenday": ["存放中央银行款项_旬报表", "存放中央银行款项旬报表", "存放中央银行款项"],
     "interbank_deposit_parent": ["存放同业明细母行"],
     "interbank_deposit_risk": ["存放同业风险明细"],
@@ -867,13 +903,18 @@ def _render_upload_summary_cards(records: list[dict]) -> None:
             if st.button(f"筛选：{label}", key=f"upload_summary_filter_{status}", use_container_width=True):
                 st.session_state["upload_filter_status"] = status
                 st.session_state["upload_table_page"] = 1
+                query_params = dict(st.query_params)
+                query_params["nav_mode"] = "make"
+                query_params["workflow_step"] = "1"
+                query_params["upload_status_filter"] = status
+                st.query_params.update(query_params)
                 st.rerun()
 
 
 def _filter_upload_records(records: list[dict]) -> list[dict]:
     status = st.session_state.get("upload_filter_status", "all")
     department = st.session_state.get("upload_filter_department", "全部部门")
-    keyword = str(st.session_state.get("upload_filter_keyword", "") or "").strip().lower()
+    keyword = _normalize_upload_search_text(st.session_state.get("upload_filter_keyword", ""))
     date_range = st.session_state.get("upload_filter_date_range")
 
     filtered = records
@@ -888,7 +929,7 @@ def _filter_upload_records(records: list[dict]) -> list[dict]:
     if keyword:
         filtered = [
             item for item in filtered
-            if keyword in item["file_name"].lower() or keyword in item["description"].lower()
+            if keyword in _upload_record_search_text(item)
         ]
     if isinstance(date_range, tuple) and len(date_range) == 2 and all(date_range):
         start_date, end_date = date_range
@@ -898,6 +939,23 @@ def _filter_upload_records(records: list[dict]) -> list[dict]:
             and start_date <= pd.Timestamp(item["upload_time"]).date() <= end_date
         ]
     return filtered
+
+
+def _normalize_upload_search_text(value) -> str:
+    return re.sub(r"\s+", "", str(value or "").strip().lower())
+
+
+def _upload_record_search_text(item: dict) -> str:
+    file_config = item.get("file_config") or {}
+    uploaded_path = item.get("uploaded_path")
+    parts = [
+        item.get("file_name"),
+        item.get("description"),
+        file_config.get("display_name"),
+        file_config.get("file_key"),
+        uploaded_path.name if uploaded_path else "",
+    ]
+    return _normalize_upload_search_text(" ".join(str(part or "") for part in parts))
 
 
 def _render_upload_filters(records: list[dict]) -> None:
@@ -1057,7 +1115,7 @@ def render_permission_limited_upload_row(index: int, record: dict) -> None:
 def render_base_file_uploaders(base_files: list[dict]) -> None:
     _apply_upload_page_styles()
     query_status = st.query_params.get("upload_status_filter")
-    if query_status in {"all", "uploaded_group", "pending_upload", "quality_issue_group"}:
+    if query_status in {"all", "uploaded", "uploaded_group", "pending_upload", "quality_issue_group"}:
         if st.session_state.get("upload_filter_status") != query_status:
             st.session_state["upload_filter_status"] = query_status
             st.session_state["upload_table_page"] = 1
@@ -1081,8 +1139,9 @@ def render_base_file_uploaders(base_files: list[dict]) -> None:
     records = _build_upload_records(visible_rows, permission_index)
     _render_upload_summary_cards(records)
     _render_batch_upload_panel(records)
+    _render_upload_filters(records)
 
-    filtered_records = records
+    filtered_records = _filter_upload_records(records)
 
     page_size = 10
     total_pages = max(1, (len(filtered_records) + page_size - 1) // page_size)
@@ -1632,6 +1691,14 @@ def _worksheet_to_html(worksheet) -> str:
         if is_central_bank_cash_report:
             html_text = _normalize_central_bank_cash_preview_html(worksheet, html_text)
 
+        is_derivative_report = str(worksheet["A1"].value or "").strip() == "五、4 衍生金融工具"
+        if is_derivative_report:
+            html_text = _style_derivative_asset_liability_preview_html(html_text)
+
+        is_reverse_repo_report = str(worksheet["A1"].value or "").strip() == "五、5 买入返售金融资产"
+        if is_reverse_repo_report:
+            html_text = _normalize_reverse_repo_preview_html(html_text)
+
         is_deposit_report = str(worksheet["A1"].value or "").strip() == "存放同业及其他金融机构款项"
         if not (is_deposit_report and str(worksheet["B2"].value or "").strip() == "20251231"):
             return html_text
@@ -1665,6 +1732,37 @@ def _worksheet_to_html(worksheet) -> str:
         return html_text
     except Exception:
         return html_text
+
+
+def _normalize_reverse_repo_preview_html(html_text: str) -> str:
+    row_pattern = (
+        r'<tr><th style="text-align:center;padding-left:8px;">买入返售债券</th>'
+        r'<th style="text-align:center;padding-left:8px;">([^<]+)</th>'
+        r'<th style="text-align:center;padding-left:8px;">([^<]+)</th></tr>'
+    )
+
+    def replace_row(match) -> str:
+        return (
+            '<tr>'
+            '<td style="text-align:left;padding-left:8px;">买入返售债券</td>'
+            f'<td style="text-align:right;padding-left:8px;">{match.group(1)}</td>'
+            f'<td style="text-align:right;padding-left:8px;">{match.group(2)}</td>'
+            '</tr>'
+        )
+
+    return re.sub(row_pattern, replace_row, html_text, count=1)
+
+
+def _style_derivative_asset_liability_preview_html(html_text: str) -> str:
+    header_style = (
+        'text-align:center;padding-left:8px;'
+        'background-color:#0f5f4f;color:#ffffff;font-weight:800;'
+    )
+    for label in ("资产", "负债"):
+        old_cell = f'<td style="text-align:center;padding-left:8px;">{label}</td>'
+        new_cell = f'<th style="{header_style}">{label}</th>'
+        html_text = html_text.replace(old_cell, new_cell)
+    return html_text
 
 
 def _normalize_central_bank_cash_preview_html(worksheet, html_text: str) -> str:
@@ -2219,7 +2317,10 @@ def render_permission_assignment_page(access_control: dict, report_types: dict) 
 _original_main = _app["main"]
 _original_apply_global_styles = _app["apply_global_styles"]
 _original_build_report_dataset = _app["build_report_dataset"]
+_original_render_report_generation_action = _app["render_report_generation_action"]
 _original_build_pdf_metric_values_df = _app["build_pdf_metric_values_df"]
+
+from engine.pdf_extractor import parse_note_table_amounts_from_text as _patched_parse_note_table_amounts_from_text
 
 
 def apply_global_styles() -> None:
@@ -2229,39 +2330,85 @@ def apply_global_styles() -> None:
 
 def _run_with_upload_legacy_header_hidden(callback) -> None:
     original_set_page_config = st.set_page_config
+    original_markdown = st.markdown
     original_button = st.button
     original_caption = st.caption
     original_subheader = st.subheader
+    original_title = st.title
+    original_radio = st.radio
+    original_sidebar_markdown = st.sidebar.markdown
+    original_sidebar_button = st.sidebar.button
+    original_sidebar_radio = st.sidebar.radio
 
     def filtered_set_page_config(*args, **kwargs):
         return None
 
+    def renamed_markdown(body, *args, **kwargs):
+        return original_markdown(_rename_menu_labels(body), *args, **kwargs)
+
     def filtered_button(label, *args, **kwargs):
         if str(label) == "返回制作报表首页":
             return False
-        return original_button(label, *args, **kwargs)
+        return original_button(_rename_menu_labels(label), *args, **kwargs)
 
     def filtered_caption(body, *args, **kwargs):
         if str(body) == "上传文件":
             return None
-        return original_caption(body, *args, **kwargs)
+        return original_caption(_rename_menu_labels(body), *args, **kwargs)
 
     def filtered_subheader(body, *args, **kwargs):
         if str(body) == "基础文件":
             return None
-        return original_subheader(body, *args, **kwargs)
+        return original_subheader(_rename_menu_labels(body), *args, **kwargs)
+
+    def renamed_title(body, *args, **kwargs):
+        return original_title(_rename_menu_labels(body), *args, **kwargs)
+
+    def renamed_radio(label, options, *args, **kwargs):
+        original_options = list(options)
+        renamed_options = _rename_menu_labels(original_options)
+        selected = original_radio(_rename_menu_labels(label), renamed_options, *args, **kwargs)
+        if selected in renamed_options:
+            return original_options[renamed_options.index(selected)]
+        return selected
+
+    def renamed_sidebar_markdown(body, *args, **kwargs):
+        return original_sidebar_markdown(_rename_menu_labels(body), *args, **kwargs)
+
+    def renamed_sidebar_button(label, *args, **kwargs):
+        return original_sidebar_button(_rename_menu_labels(label), *args, **kwargs)
+
+    def renamed_sidebar_radio(label, options, *args, **kwargs):
+        original_options = list(options)
+        renamed_options = _rename_menu_labels(original_options)
+        selected = original_sidebar_radio(_rename_menu_labels(label), renamed_options, *args, **kwargs)
+        if selected in renamed_options:
+            return original_options[renamed_options.index(selected)]
+        return selected
 
     st.set_page_config = filtered_set_page_config
+    st.markdown = renamed_markdown
     st.button = filtered_button
     st.caption = filtered_caption
     st.subheader = filtered_subheader
+    st.title = renamed_title
+    st.radio = renamed_radio
+    st.sidebar.markdown = renamed_sidebar_markdown
+    st.sidebar.button = renamed_sidebar_button
+    st.sidebar.radio = renamed_sidebar_radio
     try:
         callback()
     finally:
         st.set_page_config = original_set_page_config
+        st.markdown = original_markdown
         st.button = original_button
         st.caption = original_caption
         st.subheader = original_subheader
+        st.title = original_title
+        st.radio = original_radio
+        st.sidebar.markdown = original_sidebar_markdown
+        st.sidebar.button = original_sidebar_button
+        st.sidebar.radio = original_sidebar_radio
 
 
 def main() -> None:
@@ -2290,7 +2437,55 @@ def build_report_dataset(rule_file_path, report_key, report_config, report_types
             report_config,
             report_period=str((institution_context or {}).get("period") or ""),
         )
+    if str(report_config.get("detail_generator") or "") == "derivative_financial_instruments":
+        from engine.derivative_financial_instruments import build_derivative_financial_instruments_report
+
+        return build_derivative_financial_instruments_report(
+            UPLOAD_DIR,
+            report_config,
+            report_period=str((institution_context or {}).get("period") or ""),
+        )
     return _original_build_report_dataset(rule_file_path, report_key, report_config, report_types, institution_context)
+
+
+def render_report_generation_action(
+    report_key: str,
+    report_config: dict,
+    report_types: dict,
+    institution_context: dict | None = None,
+) -> None:
+    file_config = _app["load_file_templates"]()
+    file_groups = _app["get_file_groups"](file_config)
+    try:
+        rule_file = _app["get_primary_rule_file"](file_groups)
+    except TypeError:
+        rule_file = _app["get_primary_rule_file"]()
+    if not rule_file:
+        st.warning("未找到报表指标加工规则文件。")
+        return
+    context = institution_context or {"name": "集团", "period": _app["current_report_period"]()}
+    if not st.button("生成报表", type="primary", key=f"generate_{report_key}"):
+        return
+
+    display_name = str(report_config.get("display_name") or report_key)
+    st.info(f"正在生成{display_name}，大文件明细读取可能需要 1-2 分钟，请勿重复点击。")
+    try:
+        import time
+
+        started_at = time.perf_counter()
+        with st.spinner(f"正在生成{display_name}..."):
+            report_df = build_report_dataset(rule_file, report_key, report_config, report_types, context)
+            institution_label = str(context.get("name") or context.get("scope") or "集团")
+            output_file_name = _app["output_name_for_institution"](report_config, "生成版", institution_label)
+            output_path = OUTPUT_DIR / output_file_name
+            _app["write_report_generation_excel"](report_df, report_config, output_path)
+            intermediate_file_name = _app["output_name_for_institution"](report_config, "生成结果_中间表", institution_label)
+            save_intermediate_df(report_df, intermediate_file_name)
+        elapsed = time.perf_counter() - started_at
+        st.success(f"已生成：{output_path}，耗时 {elapsed:.1f} 秒")
+        st.dataframe(report_df, use_container_width=True, hide_index=True)
+    except Exception as exc:  # noqa: BLE001
+        st.error(f"生成报表失败：{exc}")
 
 
 def build_pdf_metric_values_df(pdf_amounts_df, report_df, current_period, report_config=None):
@@ -2302,6 +2497,14 @@ def build_pdf_metric_values_df(pdf_amounts_df, report_df, current_period, report
     previous_period_text = str(previous_period_text or "")
     if not previous_period_text:
         return metric_df
+
+    metric_df = _apply_derivative_pdf_metric_period_values(
+        metric_df,
+        pdf_amounts_df,
+        str(report_config.get("detail_generator") or "") if isinstance(report_config, dict) else "",
+        str(current_period_text or ""),
+        previous_period_text,
+    )
 
     pdf_rows = _ratio_pdf_rows_by_item_name(pdf_amounts_df)
     if not pdf_rows:
@@ -2329,6 +2532,91 @@ def build_pdf_metric_values_df(pdf_amounts_df, report_df, current_period, report
     return result_df
 
 
+def _apply_derivative_pdf_metric_period_values(
+    metric_df,
+    pdf_amounts_df,
+    detail_generator: str,
+    current_period_text: str,
+    previous_period_text: str,
+):
+    if detail_generator != "derivative_financial_instruments":
+        return metric_df
+    if not isinstance(pdf_amounts_df, pd.DataFrame) or "指标名称" not in pdf_amounts_df.columns:
+        return metric_df
+
+    pdf_rows = {
+        str(row.get("指标名称") or ""): row
+        for _, row in pdf_amounts_df.iterrows()
+    }
+    result_df = metric_df.copy()
+    current_group_col = f"PDF集团{current_period_text}"
+    current_parent_col = f"PDF本行{current_period_text}"
+    previous_group_col = f"PDF集团{previous_period_text}"
+    previous_parent_col = f"PDF本行{previous_period_text}"
+
+    for index, row in result_df.iterrows():
+        item_code = str(row.get("指标编码") or "")
+        item_name = str(row.get("指标名称") or "")
+        value_index = _derivative_pdf_table_value_index(item_code)
+        if value_index is None:
+            continue
+
+        pdf_row = pdf_rows.get(item_name)
+        if pdf_row is None:
+            continue
+        values = _amount_values_from_pdf_raw_text(str(pdf_row.get("PDF原始行文本") or ""))
+        if len(values) == 1 and values[0] == 0:
+            current_value = 0.0
+            previous_value = 0.0
+        else:
+            current_value = values[value_index] if len(values) > value_index else None
+            previous_index = value_index + 3
+            previous_value = values[previous_index] if len(values) > previous_index else current_value
+
+        for column, value in (
+            (current_group_col, current_value),
+            (current_parent_col, current_value),
+            (previous_group_col, previous_value),
+            (previous_parent_col, previous_value),
+        ):
+            if column in result_df.columns and value is not None:
+                result_df.at[index, column] = value
+    return result_df
+
+
+def _derivative_pdf_table_value_index(item_code: str) -> int | None:
+    code = item_code.strip().upper()
+    if not re.fullmatch(r"B0?2[789]\d", code):
+        return None
+    try:
+        numeric_code = int(code[1:])
+    except ValueError:
+        return None
+    if 270 <= numeric_code <= 277:
+        return 0
+    if 278 <= numeric_code <= 285:
+        return 1
+    if 286 <= numeric_code <= 293:
+        return 2
+    return None
+
+
+def _amount_values_from_pdf_raw_text(raw_text: str) -> list[float]:
+    values: list[float] = []
+    for part in [part.strip() for part in str(raw_text or "").split("|")]:
+        if part in {"-", "－", "—"}:
+            values.append(0.0)
+            continue
+        if not re.fullmatch(r"\(?\s*-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\s*\)?", part):
+            continue
+        normalized = part.replace(",", "").replace(" ", "")
+        is_negative = normalized.startswith("(") and normalized.endswith(")")
+        normalized = normalized.strip("()")
+        value = float(normalized)
+        values.append(-abs(value) if is_negative else value)
+    return values
+
+
 def _ratio_pdf_rows_by_item_name(pdf_amounts_df) -> dict[str, object]:
     if not isinstance(pdf_amounts_df, pd.DataFrame) or "指标名称" not in pdf_amounts_df.columns:
         return {}
@@ -2352,6 +2640,79 @@ def _percent_values_from_pdf_raw_text(raw_text: str) -> list[float]:
     return values
 
 
+def build_pdf_institution_period_values_df(pdf_metric_values_df, report_config=None):
+    if pdf_metric_values_df is None or getattr(pdf_metric_values_df, "empty", True):
+        return pd.DataFrame()
+
+    report_name = str((report_config or {}).get("display_name") or (report_config or {}).get("output_prefix") or "")
+    columns = {
+        "report": "\u62a5\u8868\u540d\u79f0",
+        "code": "\u6307\u6807\u7f16\u7801",
+        "name": "\u6307\u6807\u540d\u79f0",
+        "institution": "\u673a\u6784",
+        "period": "\u671f\u95f4",
+        "value": "PDF\u6307\u6807\u503c",
+        "page": "PDF\u6765\u6e90\u9875\u7801",
+        "raw": "PDF\u539f\u59cb\u884c\u6587\u672c",
+    }
+    value_column_pattern = re.compile(r"^PDF(\u96c6\u56e2|\u672c\u884c)(\d{4,8})$")
+    rows: list[dict] = []
+    for _, row in pdf_metric_values_df.iterrows():
+        for column in pdf_metric_values_df.columns:
+            match = value_column_pattern.fullmatch(str(column))
+            if not match:
+                continue
+            value = pd.to_numeric(row.get(column), errors="coerce")
+            if pd.isna(value):
+                continue
+            rows.append(
+                {
+                    columns["report"]: report_name,
+                    columns["code"]: row.get(columns["code"]),
+                    columns["name"]: row.get(columns["name"]),
+                    columns["institution"]: match.group(1),
+                    columns["period"]: match.group(2),
+                    columns["value"]: float(value),
+                    columns["page"]: row.get(columns["page"]),
+                    columns["raw"]: row.get(columns["raw"]),
+                }
+            )
+    return pd.DataFrame(
+        rows,
+        columns=[
+            columns["report"],
+            columns["code"],
+            columns["name"],
+            columns["institution"],
+            columns["period"],
+            columns["value"],
+            columns["page"],
+            columns["raw"],
+        ],
+    )
+
+
+_original_save_intermediate_df = _app["save_intermediate_df"]
+
+
+def save_intermediate_df(df, path):
+    result = _original_save_intermediate_df(df, path)
+    output_path = Path(path)
+    marker = "_PDF\u6307\u6807\u503c.xlsx"
+    if output_path.name.endswith(marker):
+        report_name = output_path.name[: -len(marker)]
+        institution_period_df = build_pdf_institution_period_values_df(
+            df,
+            {"display_name": report_name},
+        )
+        if not institution_period_df.empty:
+            institution_period_path = output_path.with_name(
+                output_path.name.replace(marker, "_PDF\u673a\u6784\u65f6\u95f4\u6307\u6807\u503c.xlsx")
+            )
+            _original_save_intermediate_df(institution_period_df, institution_period_path)
+    return result
+
+
 _app["apply_global_styles"] = apply_global_styles
 _app["app_href"] = app_href
 _app["render_product_header"] = render_product_header
@@ -2367,7 +2728,11 @@ _app["render_unified_navigation"] = render_unified_navigation
 _app["render_top_user_bar"] = render_top_user_bar
 _app["render_workflow_home"] = render_workflow_home
 _app["build_report_dataset"] = build_report_dataset
+_app["render_report_generation_action"] = _original_render_report_generation_action
 _app["build_pdf_metric_values_df"] = build_pdf_metric_values_df
+_app["build_pdf_institution_period_values_df"] = build_pdf_institution_period_values_df
+_app["save_intermediate_df"] = save_intermediate_df
+_app["parse_note_table_amounts_from_text"] = _patched_parse_note_table_amounts_from_text
 _app["main"] = main
 
 if __name__ == "__main__":

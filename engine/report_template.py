@@ -8,7 +8,7 @@ from typing import Any
 
 import pandas as pd
 from openpyxl import load_workbook
-from openpyxl.styles import Alignment, Font
+from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
@@ -24,6 +24,8 @@ SUMMARY_SHEET_NAME = "生成说明"
 AMOUNT_NUMBER_FORMAT = "#,##0.00"
 AMOUNT_ALIGNMENT = Alignment(horizontal="right")
 METRIC_CODE_PATTERN = re.compile(r"[A-Z]\d{3,}")
+HEADER_GREEN_FILL = PatternFill(fill_type="solid", fgColor="FF0F5F4F")
+HEADER_WHITE_FONT = Font(color="FFFFFFFF", bold=True)
 
 
 def save_template_upload(uploaded_file: Any, upload_dir: str | Path, report_key: str) -> Path:
@@ -122,6 +124,7 @@ def _fill_template_workbook(worksheets: list[Worksheet], report_df: pd.DataFrame
 
     for worksheet in worksheets:
         _ensure_report_template_merges(worksheet)
+        _style_asset_liability_headers(worksheet)
         worksheet_period_columns = _infer_template_period_columns(worksheet, period_columns)
         for column_index, period in period_columns.items():
             if worksheet.max_column >= column_index:
@@ -213,6 +216,15 @@ def _fill_template_workbook(worksheets: list[Worksheet], report_df: pd.DataFrame
             "生成金额-本行",
         ],
     )
+
+
+def _style_asset_liability_headers(worksheet: Worksheet) -> None:
+    for row in worksheet.iter_rows(min_row=1, max_row=min(6, worksheet.max_row)):
+        for cell in row:
+            if _normalize_text(cell.value) not in {"资产", "负债"}:
+                continue
+            cell.fill = HEADER_GREEN_FILL
+            cell.font = HEADER_WHITE_FONT
 
 
 def _match_row(
@@ -309,8 +321,56 @@ def _build_template_alias_lookup(
         entity = _entity_from_metric_key(key)
         base_key = _strip_entity_from_metric_key(key)
         _register_template_aliases(lookup, base_key, entity, period_alias, amount)
+    _register_derived_template_aliases(lookup, period_lookup, previous_period)
     lookup.update(_load_pdf_disclosure_template_aliases(report_df))
     return lookup
+
+
+def _register_derived_template_aliases(
+    lookup: dict[str, float],
+    period_lookup: dict[tuple[str, str], float],
+    previous_period: str,
+) -> None:
+    if not previous_period:
+        return
+    _register_sum_alias(
+        lookup,
+        period_lookup,
+        previous_period,
+        "B0449",
+        ["B0446", "B0447", "B0448"],
+        "上期",
+    )
+    _register_sum_alias(
+        lookup,
+        period_lookup,
+        previous_period,
+        "B0475",
+        ["B0472", "B0473", "B0474"],
+        "上期",
+    )
+
+
+def _register_sum_alias(
+    lookup: dict[str, float],
+    period_lookup: dict[tuple[str, str], float],
+    period: str,
+    target_key: str,
+    component_keys: list[str],
+    period_alias: str,
+) -> None:
+    for entity in ("集团", "本行"):
+        amounts: list[float] = []
+        for component_key in component_keys:
+            amount = period_lookup.get((f"{component_key}{entity}", period))
+            if amount is None and entity == "集团":
+                amount = period_lookup.get((component_key, period))
+            if amount is None:
+                amounts = []
+                break
+            amounts.append(amount)
+        if amounts:
+            _register_template_aliases(lookup, target_key, entity, period_alias, sum(amounts))
 
 
 def _load_pdf_disclosure_template_aliases(report_df: pd.DataFrame) -> dict[str, float]:
@@ -341,13 +401,44 @@ def _load_pdf_disclosure_template_aliases(report_df: pd.DataFrame) -> dict[str, 
                 continue
             values = _amount_values_from_raw_pdf_text(_normalize_text(row.get("PDF原始行文本")))
             for key in keys:
-                if _is_ratio_metric_key(key) and len(values) >= 2:
+                derivative_previous_value = _derivative_previous_pdf_value(key, values)
+                if derivative_previous_value is not None:
+                    _register_template_aliases(lookup, key, "集团", "上期", derivative_previous_value)
+                    _register_template_aliases(lookup, key, "本行", "上期", derivative_previous_value)
+                elif _is_ratio_metric_key(key) and len(values) >= 2:
                     _register_template_aliases(lookup, key, "集团", "上期", values[1])
                     _register_template_aliases(lookup, key, "本行", "上期", values[1])
                 elif len(values) >= 4:
                     _register_template_aliases(lookup, key, "集团", "上期", values[1])
                     _register_template_aliases(lookup, key, "本行", "上期", values[3])
     return lookup
+
+
+def _derivative_previous_pdf_value(key: str, values: list[float]) -> float | None:
+    value_index = _derivative_pdf_table_value_index(key)
+    if value_index is None:
+        return None
+    if len(values) == 1 and values[0] == 0:
+        return 0.0
+    previous_index = value_index + 3
+    if len(values) <= previous_index:
+        return None
+    return values[previous_index]
+
+
+def _derivative_pdf_table_value_index(key: str) -> int | None:
+    text = _normalize_text(key).upper()
+    match = re.fullmatch(r"B0?2([789]\d)", text)
+    if not match:
+        return None
+    numeric_code = int(f"2{match.group(1)}")
+    if 270 <= numeric_code <= 277:
+        return 0
+    if 278 <= numeric_code <= 285:
+        return 1
+    if 286 <= numeric_code <= 293:
+        return 2
+    return None
 
 
 def _amount_values_from_raw_pdf_text(raw_text: str) -> list[float]:
@@ -357,14 +448,16 @@ def _amount_values_from_raw_pdf_text(raw_text: str) -> list[float]:
         if percent_match:
             values.append(float(part.rstrip("%").strip()) / 100)
             continue
-        if _looks_like_pdf_note_number(part):
-            continue
         if part in {"-", "－", "—"}:
             values.append(0.0)
             continue
-        if not re.fullmatch(r"\(?\s*-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\s*\)?", part):
+        if re.fullmatch(r"\(\s*-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\s*\)", part):
+            values.append(_parse_template_amount(part))
             continue
-        values.append(_parse_template_amount(part))
+        if _looks_like_pdf_note_number(part):
+            continue
+        if re.fullmatch(r"-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?", part):
+            values.append(_parse_template_amount(part))
     return values
 
 
@@ -465,6 +558,25 @@ def _load_external_period_metric_lookup() -> dict[tuple[str, str], float]:
                                 lookup[(key, period)] = amount_value
                             lookup[entity_key] = amount_value
             if PERIOD_COLUMN in df.columns:
+                if "PDF指标值" in df.columns:
+                    for index, row in df.iterrows():
+                        period = _normalize_period(row.get(PERIOD_COLUMN))
+                        entity = _normalize_text(row.get("机构")) or "集团"
+                        amount = _get_amount(row, "PDF指标值")
+                        if not period or amount is None:
+                            continue
+                        for key_column in (ITEM_CODE_COLUMN, ITEM_COLUMN):
+                            if key_column not in df.columns:
+                                continue
+                            key = _normalize_text(row.get(key_column))
+                            if not key:
+                                continue
+                            if entity in {"集团", "本集团", "合并"}:
+                                lookup[(key, period)] = amount
+                                lookup[(f"{key}集团", period)] = amount
+                            elif entity == "本行":
+                                lookup[(f"{key}本行", period)] = amount
+                    continue
                 for index, row in df.iterrows():
                     period = _normalize_period(row.get(PERIOD_COLUMN))
                     if not period:
@@ -608,15 +720,17 @@ def _period_metric_amount(
     period = period_columns.get(column_index)
     if period:
         for candidate_period in _compatible_periods(period):
-            amount = period_lookup.get((metric_key, candidate_period))
-            if amount is not None:
-                return amount
+            for candidate_key in _period_metric_candidate_keys(metric_key):
+                amount = period_lookup.get((candidate_key, candidate_period))
+                if amount is not None:
+                    return amount
         return None
 
     if column_index not in {3, 4}:
         return None
+    candidate_keys = set(_period_metric_candidate_keys(metric_key))
     periods_for_key = sorted(
-        [candidate_period for key, candidate_period in period_lookup if key == metric_key],
+        [candidate_period for key, candidate_period in period_lookup if key in candidate_keys],
         reverse=True,
     )
     if not periods_for_key:
@@ -627,7 +741,26 @@ def _period_metric_amount(
         period = periods_for_key[1]
     else:
         return None
-    return period_lookup.get((metric_key, period))
+    for candidate_key in _period_metric_candidate_keys(metric_key):
+        amount = period_lookup.get((candidate_key, period))
+        if amount is not None:
+            return amount
+    return None
+
+
+def _period_metric_candidate_keys(metric_key: str) -> list[str]:
+    key = _normalize_text(metric_key)
+    if not key:
+        return []
+    candidates = [key]
+    stripped = key
+    for suffix in ("本期数", "上期数", "本年数", "上年数", "本期", "上期", "本年", "上年"):
+        if stripped.endswith(suffix):
+            stripped = stripped[: -len(suffix)]
+            break
+    if stripped and stripped not in candidates:
+        candidates.append(stripped)
+    return candidates
 
 
 def _compatible_periods(period: str) -> list[str]:
