@@ -81,6 +81,26 @@ upload_files:
     prefix: 1-13-
     file_type: docx
     description: 2025 年度利润分配方案议案基础数据文件
+  - file_key: actuarial_valuation_report
+    display_name: 5-21-1-20251231时点精算评估报告
+    required: false
+    prefix: 5-21-1-20251231
+    file_type:
+    - xlsx
+    - xls
+    - docx
+    - pdf
+    description: 2025 年 12 月 31 日时点精算评估报告，用于应付职工薪酬设定受益计划等指标取数
+  - file_key: actuarial_valuation_report_20250930
+    display_name: 5-21-2-20250930精算评估报告
+    required: false
+    prefix: 5-21-2-20250930
+    file_type:
+    - xlsx
+    - xls
+    - docx
+    - pdf
+    description: 2025 年 9 月 30 日精算评估报告，用于应付职工薪酬设定受益计划等期间数据取数
   - file_key: central_bank_deposit_tenday
     display_name: 5-1-1-1-1231存放中央银行款项_旬报表.xlsx
     required: false

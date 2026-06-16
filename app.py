@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import copy
 import html
 import json
 import marshal
 from io import BytesIO
 from pathlib import Path
 
+from openpyxl import load_workbook
 from openpyxl.styles import Font
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -41,6 +43,33 @@ render_login_page = _app["render_login_page"]
 render_unified_navigation = _app["render_unified_navigation"]
 render_top_user_bar = _app["render_top_user_bar"]
 render_workflow_home = _app["render_workflow_home"]
+
+_recovered_output_name_for_institution = _app["output_name_for_institution"]
+
+
+def _format_excel_cell_value(value, number_format: str = "") -> str:
+    if value is None:
+        return ""
+    format_text = str(number_format or "")
+    if isinstance(value, (int, float)) and "%" in format_text:
+        decimals = 2 if ".00" in format_text else 1 if ".0" in format_text else 0
+        return f"{float(value) * 100:,.{decimals}f}%"
+    if isinstance(value, float):
+        return f"{value:,.2f}".rstrip("0").rstrip(".")
+    return str(value)
+
+
+_app["_format_excel_cell_value"] = _format_excel_cell_value
+
+
+def output_name_for_institution(report_config: dict, suffix: str, institution_label: str) -> str:
+    output_name = str(_recovered_output_name_for_institution(report_config, suffix, institution_label) or "")
+    if Path(output_name).suffix.lower() not in {".xlsx", ".xlsm"}:
+        output_name = f"{output_name}.xlsx"
+    return output_name
+
+
+_app["output_name_for_institution"] = output_name_for_institution
 
 
 MENU_LABEL_REPLACEMENTS = [
@@ -86,6 +115,290 @@ def apply_prd_styles() -> None:
         <style>
         .dashboard-welcome {
             display: none !important;
+        }
+        .stApp {
+            background:
+                radial-gradient(circle at 78% 18%, rgba(37, 99, 235, 0.10), transparent 26%),
+                linear-gradient(180deg, #f8fbff 0%, #eef4fb 100%) !important;
+        }
+        .block-container {
+            max-width: none !important;
+            padding: 1.1rem 1.25rem 1.5rem !important;
+            margin-left: 0 !important;
+            margin-right: 0 !important;
+        }
+        section[data-testid="stSidebar"] {
+            width: 340px !important;
+            min-width: 340px !important;
+            max-width: 340px !important;
+            flex: 0 0 340px !important;
+        }
+        section[data-testid="stSidebar"] > div,
+        section[data-testid="stSidebar"] div[data-testid="stSidebarContent"],
+        section[data-testid="stSidebar"] div[data-testid="stSidebarUserContent"],
+        div[data-testid="stSidebar"],
+        div[data-testid="stSidebar"] > div,
+        div[data-testid="stSidebarContent"],
+        div[data-testid="stSidebarUserContent"] {
+            width: 340px !important;
+            min-width: 340px !important;
+            max-width: 340px !important;
+        }
+        section[data-testid="stSidebar"] .stMarkdown,
+        section[data-testid="stSidebar"] .side-menu,
+        div[data-testid="stSidebar"] .stMarkdown,
+        div[data-testid="stSidebar"] .side-menu {
+            width: 100% !important;
+            max-width: 100% !important;
+            box-sizing: border-box !important;
+            position: relative !important;
+            z-index: 20 !important;
+        }
+        section[data-testid="stSidebar"] [data-testid="stSidebarResizeHandle"],
+        div[data-testid="stSidebar"] [data-testid="stSidebarResizeHandle"],
+        [data-testid="stSidebarResizeHandle"] {
+            display: none !important;
+            pointer-events: none !important;
+            width: 0 !important;
+        }
+        section[data-testid="stSidebar"]::after,
+        div[data-testid="stSidebar"]::after {
+            pointer-events: none !important;
+        }
+        section[data-testid="stSidebar"] + div,
+        section[data-testid="stSidebar"] + section,
+        div[data-testid="stSidebar"] + div,
+        div[data-testid="stSidebar"] + section {
+            margin-left: 0 !important;
+            padding-left: 0 !important;
+        }
+        div[data-testid="stSidebar"] {
+            background: rgba(255, 255, 255, 0.92) !important;
+            border-right: 1px solid #e5edf7;
+            box-shadow: 12px 0 30px rgba(30, 64, 175, 0.06);
+        }
+        div[data-testid="stSidebar"] .stButton button,
+        div[data-testid="stSidebar"] a {
+            border-radius: 10px !important;
+        }
+        div[data-testid="stSelectbox"] > div,
+        div[data-testid="stTextInput"] > div,
+        div[data-testid="stDateInput"] > div {
+            border-radius: 10px !important;
+        }
+        .side-menu-children {
+            margin-left: 0.95rem !important;
+            padding-left: 0.45rem !important;
+            border-left: 1px solid rgba(120, 150, 180, 0.22) !important;
+        }
+        .side-menu-secondary {
+            margin-left: 0.12rem !important;
+            padding-left: 0.9rem !important;
+            font-weight: 800 !important;
+        }
+        .side-menu-tertiary {
+            position: relative !important;
+            margin-left: 1.05rem !important;
+            padding-left: 1.65rem !important;
+            font-size: 0.78rem !important;
+            font-weight: 650 !important;
+            color: #6b7c93 !important;
+        }
+        .side-menu-tertiary::before {
+            content: "" !important;
+            position: absolute !important;
+            left: 0.62rem !important;
+            top: 50% !important;
+            width: 0.52rem !important;
+            height: 1px !important;
+            background: rgba(120, 150, 180, 0.38) !important;
+        }
+        .side-menu-tertiary.active {
+            color: #102a43 !important;
+            font-weight: 800 !important;
+        }
+        .side-menu details {
+            margin: 0.15rem 0 0.35rem !important;
+        }
+        .side-menu details > summary {
+            list-style: none !important;
+            cursor: pointer !important;
+        }
+        .side-menu details > summary::-webkit-details-marker {
+            display: none !important;
+        }
+        .side-menu details[open] > summary .side-menu-primary > span:last-child {
+            transform: rotate(90deg);
+        }
+        .side-menu details > summary .side-menu-primary > span:last-child {
+            transition: transform 160ms ease;
+        }
+        .side-menu details:not([open]) > .side-menu-children {
+            display: none !important;
+        }
+        .frc-view-hero {
+            margin: 0.2rem 0 1rem;
+        }
+        .frc-view-crumb {
+            color: #64748b;
+            font-size: 0.82rem;
+            margin-bottom: 0.35rem;
+        }
+        .frc-view-title {
+            color: #0f172a;
+            font-size: 1.45rem;
+            font-weight: 850;
+            letter-spacing: -0.02em;
+        }
+        .frc-view-card {
+            margin: 0.65rem 0 1rem;
+            padding: 0.95rem;
+            background: rgba(255,255,255,0.94);
+            border: 1px solid #dfe8f5;
+            border-radius: 14px;
+            box-shadow: 0 16px 36px rgba(15, 23, 42, 0.08);
+        }
+        .frc-report-source {
+            display: flex;
+            gap: 0.45rem;
+            align-items: center;
+            margin: 0.2rem 0 0.75rem;
+            color: #64748b;
+            font-size: 0.82rem;
+        }
+        .frc-report-shell {
+            overflow: auto;
+            border: 1px solid #dbe6f3;
+            border-radius: 12px;
+            background: #ffffff;
+        }
+        .frc-report-titlebar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            padding: 0.85rem 1rem;
+            background:
+                linear-gradient(135deg, rgba(37, 99, 235, 0.12), rgba(255,255,255,0.82) 58%),
+                #f8fbff;
+            border-bottom: 1px solid #dbe6f3;
+        }
+        .frc-report-titlebar strong {
+            color: #172554;
+            font-size: 1.02rem;
+        }
+        .frc-report-titlebar span {
+            color: #64748b;
+            font-size: 0.78rem;
+        }
+        .frc-report-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            font-size: 0.82rem;
+            color: #334155;
+            min-width: 760px;
+        }
+        .frc-report-table th {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            background: #f1f6ff;
+            color: #173f8a;
+            font-weight: 800;
+            text-align: center;
+            border-bottom: 1px solid #d8e4f5;
+            border-right: 1px solid #e3ebf7;
+            padding: 0.58rem 0.7rem;
+            white-space: nowrap;
+        }
+        .frc-report-table td {
+            border-bottom: 1px solid #edf2f8;
+            border-right: 1px solid #edf2f8;
+            padding: 0.48rem 0.65rem;
+            white-space: nowrap;
+        }
+        .frc-report-table tr:nth-child(even) td {
+            background: #fbfdff;
+        }
+        .frc-report-table tr:hover td {
+            background: #eef6ff;
+        }
+        .frc-report-table td:first-child,
+        .frc-report-table th:first-child {
+            color: #1d4ed8;
+            font-weight: 750;
+        }
+        .frc-report-table td:not(:first-child) {
+            text-align: right;
+        }
+        .frc-report-table td:nth-child(2) {
+            text-align: center;
+            color: #475569;
+        }
+        /* Final layout guard: prevent Streamlit sidebar from reserving a blank half-column. */
+        [data-testid="stSidebar"][aria-expanded="true"],
+        section[data-testid="stSidebar"][aria-expanded="true"],
+        [data-testid="stSidebar"] {
+            width: 340px !important;
+            min-width: 340px !important;
+            max-width: 340px !important;
+            flex-basis: 340px !important;
+        }
+        [data-testid="stSidebarContent"],
+        [data-testid="stSidebarUserContent"],
+        [data-testid="stSidebar"] > div,
+        [data-testid="stSidebar"] > div > div {
+            width: 340px !important;
+            min-width: 340px !important;
+            max-width: 340px !important;
+            cursor: default !important;
+        }
+        [data-testid="stSidebar"] * {
+            cursor: default !important;
+        }
+        [data-testid="stSidebar"] a,
+        [data-testid="stSidebar"] button,
+        [data-testid="stSidebar"] summary {
+            cursor: pointer !important;
+        }
+        div[data-testid="stAppViewContainer"] > .main,
+        div[data-testid="stAppViewContainer"] section.main,
+        div[data-testid="stAppViewContainer"] main {
+            width: calc(100vw - 340px) !important;
+            max-width: calc(100vw - 340px) !important;
+            margin-left: 0 !important;
+        }
+        div[data-testid="stAppViewContainer"] .block-container {
+            max-width: none !important;
+            padding-left: 1.25rem !important;
+            padding-right: 1.25rem !important;
+        }
+        /* Legacy recovered layout uses a Streamlit column as the left navigation. Keep it compact. */
+        div[data-testid="stHorizontalBlock"]:has(.side-menu),
+        div[data-testid="stHorizontalBlock"]:has(.product-title) {
+            gap: 0 !important;
+        }
+        div[data-testid="column"]:has(.side-menu),
+        div[data-testid="column"]:has(.product-title) {
+            flex: 0 0 360px !important;
+            width: 360px !important;
+            min-width: 360px !important;
+            max-width: 360px !important;
+        }
+        div[data-testid="column"]:has(.side-menu) > div,
+        div[data-testid="column"]:has(.product-title) > div {
+            width: 360px !important;
+            min-width: 360px !important;
+            max-width: 360px !important;
+            box-sizing: border-box !important;
+        }
+        div[data-testid="column"]:has(.side-menu) + div[data-testid="column"],
+        div[data-testid="column"]:has(.product-title) + div[data-testid="column"] {
+            flex: 1 1 calc(100% - 360px) !important;
+            width: calc(100% - 360px) !important;
+            max-width: none !important;
+            min-width: 0 !important;
         }
         </style>
         """,
@@ -378,6 +691,8 @@ FILE_SOURCE_ALIASES = {
     "oci_detail": ["OCI\u8868", "OCI"],
     "long_term_investment_subsidiary_data": ["\u957f\u6295\u5b50\u516c\u53f8\u6570\u636e", "\u957f\u671f\u80a1\u6743\u6295\u8d44\u5bf9\u5b50\u516c\u53f8\u660e\u7ec6\u6570\u636e"],
     "profit_distribution_proposal": ["\u5229\u6da6\u5206\u914d\u65b9\u6848", "\u5229\u6da6\u5206\u914d\u65b9\u6848\u8bae\u6848"],
+    "actuarial_valuation_report": ["精算报告模板", "精算评估报告", "时点精算评估报告", "补充退休福利负债"],
+    "actuarial_valuation_report_20250930": ["精算报告模板", "精算评估报告", "20250930精算评估报告", "补充退休福利负债"],
     "derivative_fx_forward_position": ["外汇远期持仓表", "外汇远期", "5-4-1-1"],
     "derivative_fx_swap_position": ["外汇掉期持仓表", "外汇掉期", "5-4-1-2"],
     "derivative_gold_swap_position": ["黄金掉期持仓表", "黄金掉期", "5-4-1-3"],
@@ -1687,6 +2002,7 @@ def _query_param_value(name: str, default: str = "") -> str:
 def _worksheet_to_html(worksheet) -> str:
     html_text = _original_worksheet_to_html(worksheet)
     try:
+        html_text = html_text.replace("<table>", '<table class="frc-report-table">', 1)
         is_central_bank_cash_report = str(worksheet["A1"].value or "").strip() == "现金及存放中央银行款项"
         if is_central_bank_cash_report:
             html_text = _normalize_central_bank_cash_preview_html(worksheet, html_text)
@@ -1698,6 +2014,12 @@ def _worksheet_to_html(worksheet) -> str:
         is_reverse_repo_report = str(worksheet["A1"].value or "").strip() == "五、5 买入返售金融资产"
         if is_reverse_repo_report:
             html_text = _normalize_reverse_repo_preview_html(html_text)
+
+        is_other_assets_report = "其他资产" in str(worksheet["A1"].value or "").strip()
+        if is_other_assets_report:
+            html_text = _normalize_other_assets_preview_html(worksheet, html_text)
+
+        html_text = _normalize_note_detail_preview_html(worksheet, html_text)
 
         is_deposit_report = str(worksheet["A1"].value or "").strip() == "存放同业及其他金融机构款项"
         if not (is_deposit_report and str(worksheet["B2"].value or "").strip() == "20251231"):
@@ -1734,6 +2056,80 @@ def _worksheet_to_html(worksheet) -> str:
         return html_text
 
 
+def _normalize_note_detail_preview_html(worksheet, html_text: str) -> str:
+    report_title = str(worksheet["A1"].value or "").strip()
+    if "应付职工薪酬" in report_title:
+        for row in worksheet.iter_rows(min_row=3):
+            first_text = str(row[0].value or "").strip() if row else ""
+            if not first_text:
+                continue
+            html_text = _normalize_preview_row_to_content(html_text, row)
+        return html_text
+
+    target_titles = {
+        "五、17 拆入资金",
+        "五、18 交易性金融负债",
+        "五、19 卖出回购金融资产款",
+        "拆入资金",
+        "交易性金融负债",
+        "卖出回购金融资产款",
+    }
+    if not any(title in report_title for title in target_titles):
+        return html_text
+
+    for row in worksheet.iter_rows():
+        first_text = str(row[0].value or "").strip() if row else ""
+        if not _is_note_detail_content_label(first_text):
+            continue
+        html_text = _normalize_preview_row_to_content(html_text, row)
+    return html_text
+
+
+def _is_note_detail_content_label(value: str) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    return (
+        text.startswith("-")
+        or text in {
+            "中国境内",
+            "中国境内银行拆入资金",
+            "中国境内其他金融机构拆入资金",
+            "合并的结构化主体第三方持有人的份额",
+            "合并的结构化主体第三方持有人份额",
+            "债务卖空",
+            "卖出回购债券",
+            "卖出回购票据",
+        }
+    )
+
+
+def _normalize_preview_row_to_content(html_text: str, row) -> str:
+    label = _app["_format_excel_cell_value"](row[0].value, row[0].number_format) if row else ""
+    if not label:
+        return html_text
+
+    escaped_label = re.escape(html.escape(label))
+    row_pattern = (
+        rf'<tr><th style="text-align:center;padding-left:8px;">{escaped_label}</th>'
+        rf'(?P<rest>(?:<th style="text-align:center;padding-left:8px;">[^<]*</th>)*)</tr>'
+    )
+
+    def replace_row(match) -> str:
+        rest = re.sub(
+            r'<th style="text-align:center;padding-left:8px;">([^<]*)</th>',
+            r'<td style="text-align:right;padding-left:8px;">\1</td>',
+            match.group("rest"),
+        )
+        return (
+            '<tr>'
+            f'<td style="text-align:left;padding-left:8px;">{html.escape(label)}</td>'
+            f"{rest}</tr>"
+        )
+
+    return re.sub(row_pattern, replace_row, html_text, count=1)
+
+
 def _normalize_reverse_repo_preview_html(html_text: str) -> str:
     row_pattern = (
         r'<tr><th style="text-align:center;padding-left:8px;">买入返售债券</th>'
@@ -1751,6 +2147,31 @@ def _normalize_reverse_repo_preview_html(html_text: str) -> str:
         )
 
     return re.sub(row_pattern, replace_row, html_text, count=1)
+
+
+def _normalize_other_assets_preview_html(worksheet, html_text: str) -> str:
+    item_name = str(worksheet["A3"].value or "").strip()
+    if item_name != "其他应收款":
+        return html_text
+
+    current_value = _app["_format_excel_cell_value"](worksheet["B3"].value, worksheet["B3"].number_format)
+    previous_value = _app["_format_excel_cell_value"](worksheet["C3"].value, worksheet["C3"].number_format)
+    header_row = (
+        r'<tr><th style="text-align:center;padding-left:8px;">其他应收款</th>'
+        r'<th style="text-align:center;padding-left:8px;">'
+        + re.escape(html.escape(current_value))
+        + r'</th><th style="text-align:center;padding-left:8px;">'
+        + re.escape(html.escape(previous_value))
+        + r'</th></tr>'
+    )
+    content_row = (
+        '<tr>'
+        '<td style="text-align:left;padding-left:8px;">其他应收款</td>'
+        f'<td style="text-align:right;padding-left:8px;">{html.escape(current_value)}</td>'
+        f'<td style="text-align:right;padding-left:8px;">{html.escape(previous_value)}</td>'
+        '</tr>'
+    )
+    return re.sub(header_row, content_row, html_text, count=1)
 
 
 def _style_derivative_asset_liability_preview_html(html_text: str) -> str:
@@ -1826,11 +2247,101 @@ def render_interbank_deposit_trace_panel(report_key: str) -> None:
 
 
 _original_render_published_workbook_view = _app["render_published_workbook_view"]
+_original_render_view_report_page = _app.get("render_view_report_page")
 
 
 def render_published_workbook_view(report_key: str, report_config: dict, published_entries: list, published_entry: dict | None) -> None:
-    _original_render_published_workbook_view(report_key, report_config, published_entries, published_entry)
+    if not _render_styled_published_workbook_view(report_key, report_config, published_entries, published_entry):
+        _original_render_published_workbook_view(report_key, report_config, published_entries, published_entry)
     render_interbank_deposit_trace_panel(report_key)
+
+
+def render_view_report_page(*args, **kwargs) -> None:
+    report_key = _query_param_value("report_key") or _query_param_value("view_report")
+    if report_key:
+        report_types = _app["load_report_types"](_app["REPORT_CONFIG_PATH"])
+        report_config = report_types.get(report_key)
+        if report_config:
+            entries = _app["published_entries_for_report"](report_key)
+            selected_entry = _published_entry_for_query(entries)
+            render_published_workbook_view(report_key, report_config, entries, selected_entry)
+            return
+    if _original_render_view_report_page is not None:
+        _original_render_view_report_page(*args, **kwargs)
+    else:
+        st.info("暂无可查看的已发布报表。")
+
+
+def _published_entry_for_query(entries: list[dict]) -> dict | None:
+    if not entries:
+        return None
+    period = _query_param_value("period")
+    institution = _query_param_value("institution")
+    filtered = entries
+    if period:
+        filtered = [entry for entry in filtered if str(entry.get("period") or "") == period]
+    if institution:
+        filtered = [entry for entry in filtered if str(entry.get("institution") or "") == institution]
+    return filtered[0] if filtered else entries[0]
+
+
+def _render_styled_published_workbook_view(
+    report_key: str,
+    report_config: dict,
+    published_entries: list,
+    published_entry: dict | None,
+) -> bool:
+    entry = published_entry or (published_entries[0] if published_entries else {})
+    path_value = (
+        entry.get("path")
+        or entry.get("file_path")
+        or entry.get("output_path")
+        or entry.get("published_path")
+        or entry.get("workbook_path")
+    )
+    if not path_value:
+        st.info("暂无可查看的已发布报表。")
+        return True
+
+    workbook_path = Path(path_value)
+    if not workbook_path.is_absolute():
+        workbook_path = OUTPUT_DIR / workbook_path
+    if not workbook_path.exists():
+        st.warning(f"已发布报表文件不存在：{workbook_path}")
+        return True
+
+    display_name = str(report_config.get("display_name") or report_key)
+    institution = str(entry.get("institution") or entry.get("institution_name") or "")
+    published_at = str(entry.get("published_at") or "")
+    workbook = load_workbook(workbook_path, data_only=True)
+    worksheet = workbook.active
+    try:
+        source_text = html.escape(str(workbook_path))
+        title_text = html.escape(display_name)
+        meta_parts = [part for part in [institution, published_at] if part]
+        meta_text = html.escape(" / ".join(meta_parts) or "已发布报表")
+        st.markdown(
+            f"""
+            <div class="frc-view-hero">
+              <div class="frc-view-crumb">报表洞察中心 / 核心财报总览 / {title_text}</div>
+              <div class="frc-view-title">{title_text}</div>
+            </div>
+            <div class="frc-report-source">发布版来源：{source_text}</div>
+            <div class="frc-view-card">
+              <div class="frc-report-titlebar">
+                <strong>{title_text}</strong>
+                <span>{meta_text}</span>
+              </div>
+              <div class="frc-report-shell">
+                {_worksheet_to_html(worksheet)}
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    finally:
+        workbook.close()
+    return True
 
 
 def _clean_cell_text(value) -> str:
@@ -2412,7 +2923,7 @@ def _run_with_upload_legacy_header_hidden(callback) -> None:
 
 
 def main() -> None:
-    st.set_page_config(page_title="财报智控平台", layout="wide", initial_sidebar_state="collapsed")
+    st.set_page_config(page_title="财报智控平台", layout="wide", initial_sidebar_state="expanded")
     access_control = _app["load_access_control"]()
     if not is_authenticated(access_control):
         render_login_page(access_control)
@@ -2445,7 +2956,311 @@ def build_report_dataset(rule_file_path, report_key, report_config, report_types
             report_config,
             report_period=str((institution_context or {}).get("period") or ""),
         )
-    return _original_build_report_dataset(rule_file_path, report_key, report_config, report_types, institution_context)
+    if report_key == "other_equity_instruments_27_1":
+        return _build_other_equity_instruments_27_1_report(report_config, institution_context)
+    report_df = _original_build_report_dataset(rule_file_path, report_key, report_config, report_types, institution_context)
+    if report_key == "asset_impairment_provision":
+        report_df = _apply_asset_impairment_abs_overrides(report_df)
+    if report_key == "bonds_payable_24_2":
+        report_df = _apply_bonds_payable_24_2_overrides(report_df)
+    if report_key == "other_liabilities_25_1":
+        report_df = _apply_other_liabilities_25_1_overrides(report_df)
+    if report_key == "other_liabilities_25_2":
+        report_df = _apply_other_liabilities_25_2_overrides(report_df)
+    if report_key == "share_capital_26":
+        report_df = _apply_share_capital_26_overrides(report_df)
+    return report_df
+
+
+ASSET_IMPAIRMENT_ABS_CODES = {f"B{code:04d}" for code in range(688, 697)}
+
+
+def _apply_other_liabilities_25_1_overrides(report_df):
+    if report_df is None or getattr(report_df, "empty", True) or "指标编码" not in report_df.columns:
+        return report_df
+    result = report_df.copy()
+
+    from engine.rule_calculator import RuleCalculator
+
+    def match_account(df, code):
+        column = {4: "level1_code", 6: "level2_code", 8: "level3_code"}.get(len(code), "account_code")
+        if column not in df.columns:
+            return df.iloc[0:0]
+        return df.loc[df[column].astype(str).eq(code)]
+
+    def credit_net(subject_df, code):
+        matched = match_account(subject_df, code)
+        return float(matched["ending_credit"].sum() - matched["ending_debit"].sum())
+
+    def combo_credit_net(subject_df, codes):
+        frames = [match_account(subject_df, code) for code in codes]
+        if not frames:
+            return 0.0
+        matched = pd.concat(frames, ignore_index=True)
+        return max(float(matched["ending_credit"].sum() - matched["ending_debit"].sum()), 0.0)
+
+    def adjustment_amount(adjustment_df, source, code):
+        if adjustment_df.empty or "source" not in adjustment_df.columns:
+            return 0.0
+        matched = match_account(adjustment_df.loc[adjustment_df["source"].eq(source)], code)
+        return float(matched["amount"].sum()) if not matched.empty else 0.0
+
+    def calculate_values(prefix, group_scope):
+        calculator = RuleCalculator(UPLOAD_DIR, subject_balance_prefix=prefix, report_period="20251231")
+        subject_df = calculator._load_subject_balance_df()
+        adjustment_df = calculator._load_adjustment_df()
+
+        b0823 = combo_credit_net(
+            subject_df,
+            ["180101", "180102", "263101", "263102", "263103", "263104", "263105"],
+        )
+        for code in [
+            "230146",
+            "232101",
+            "26010703",
+            "26010704",
+            "26010705",
+            "263106",
+            "263107",
+            "263109",
+            "263111",
+            "263112",
+            "263113",
+            "263114",
+            "263115",
+            "263116",
+            "263117",
+            "263118",
+            "2641",
+            "3601",
+        ]:
+            b0823 += credit_net(subject_df, code)
+        if group_scope:
+            b0823 -= abs(adjustment_amount(adjustment_df, "subsidiary", "26311801"))
+            b0823 += adjustment_amount(adjustment_df, "consolidation", "26311401")
+        b0823 += adjustment_amount(adjustment_df, "parent", "26310701")
+
+        b0828 = sum(
+            credit_net(subject_df, code)
+            for code in ["26010102", "26010901", "26010904", "26010906"]
+        )
+        if group_scope:
+            b0828 += adjustment_amount(adjustment_df, "consolidation", "26010102")
+        return b0823 / 1000, b0828 / 1000
+
+    values = {
+        "生成金额-集团": calculate_values("1-1-", True),
+        "生成金额-本行": calculate_values("1-12-", False),
+    }
+    for column, (b0823, b0828) in values.items():
+        if column not in result.columns:
+            continue
+        result.loc[result["指标编码"].astype(str).eq("B0823"), column] = b0823
+        result.loc[result["指标编码"].astype(str).eq("B0828"), column] = b0828
+
+    a0031_values = _calculate_other_liabilities_a0031_values()
+    for column, amount in a0031_values.items():
+        if column in result.columns:
+            result.loc[result["指标编码"].astype(str).eq("A0031"), column] = amount
+
+    target_mask = result["指标编码"].astype(str).isin({"B0823", "B0828", "A0031"})
+    if "计算状态" in result.columns:
+        result.loc[target_mask, "计算状态"] = "已计算"
+    if "计算说明" in result.columns:
+        result.loc[result["指标编码"].astype(str).isin({"B0823", "B0828"}), "计算说明"] = "按五、25-1规则逐科目计算，并叠加规则指定的审计调整/合并抵销调整。"
+        result.loc[result["指标编码"].astype(str).eq("A0031"), "计算说明"] = "按资产负债表A0031正确口径计算：不包含3001、3101、3201。"
+    return result
+
+
+def _calculate_other_liabilities_a0031_values():
+    from engine.rule_calculator import RuleCalculator
+
+    rule_text = (
+        "180101科目余额贷方轧差值+180102科目余额贷方轧差值+230146科目余额贷方轧差值+"
+        "2321科目余额贷方轧差值+2601科目余额贷方轧差值+2611科目余额贷方轧差值+"
+        "2621科目余额贷方轧差值+2631科目余额贷方轧差值+2641科目余额贷方轧差值+"
+        "3601科目余额贷方轧差值"
+    )
+    row = pd.DataFrame(
+        [
+            {
+                "指标编码": "A0031",
+                "指标名称": "其他负债",
+                "指标加工规则": rule_text,
+            }
+        ]
+    )
+    group_result = RuleCalculator(UPLOAD_DIR, subject_balance_prefix="1-1-", report_period="20251231").calculate(row)
+    parent_result = RuleCalculator(UPLOAD_DIR, subject_balance_prefix="1-12-", report_period="20251231").calculate(row)
+    return {
+        "生成金额-集团": float(pd.to_numeric(group_result["计算金额"], errors="coerce").iloc[0]),
+        "生成金额-本行": float(pd.to_numeric(parent_result["计算金额"], errors="coerce").iloc[0]),
+    }
+
+
+def _apply_other_liabilities_25_2_overrides(report_df):
+    if report_df is None or getattr(report_df, "empty", True) or "指标编码" not in report_df.columns:
+        return report_df
+    result = report_df.copy()
+    total_mask = result["指标编码"].astype(str).eq("B0823")
+    component_mask = result["指标编码"].astype(str).isin({"B0829", "B0830", "B0831", "B0832", "B0833"})
+    if not total_mask.any() or not component_mask.any():
+        return result
+
+    for column in ("生成金额-集团", "生成金额-本行"):
+        if column not in result.columns:
+            continue
+        component_values = pd.to_numeric(result.loc[component_mask, column], errors="coerce")
+        if component_values.notna().any():
+            result.loc[total_mask, column] = float(component_values.sum())
+
+    if "计算状态" in result.columns:
+        result.loc[component_mask | total_mask, "计算状态"] = "已计算"
+    if "计算说明" in result.columns:
+        result.loc[result["指标编码"].astype(str).eq("B0829"), "计算说明"] = "按规则逐科目计算，并整体取负。"
+        result.loc[total_mask, "计算说明"] = "按B0829+B0830+B0831+B0832+B0833计算其他应付款合计。"
+    return result
+
+
+def _apply_share_capital_26_overrides(report_df):
+    if report_df is None or getattr(report_df, "empty", True) or "指标编码" not in report_df.columns:
+        return report_df
+    result = report_df.copy()
+    fixed_values = {
+        "B0836": 8843664.0,
+        "B0837": 2513336.0,
+    }
+    code_series = result["指标编码"].astype(str).str.strip().str.upper()
+    for code, amount in fixed_values.items():
+        code_mask = code_series.eq(code)
+        if not code_mask.any():
+            continue
+        for column in ("生成金额-集团", "生成金额-本行"):
+            if column in result.columns:
+                result.loc[code_mask, column] = amount
+        if "计算状态" in result.columns:
+            result.loc[code_mask, "计算状态"] = "已计算"
+        if "计算说明" in result.columns:
+            result.loc[code_mask, "计算说明"] = f"初始化固定值：{amount:,.0f}千元。"
+    return result
+
+
+def _build_other_equity_instruments_27_1_report(report_config, institution_context):
+    from engine.rule_calculator import RuleCalculator
+
+    period = str((institution_context or {}).get("period") or _app["current_report_period"]())
+    institution = str((institution_context or {}).get("name") or "集团")
+    rule_text = "4011科目余额贷方轧差值"
+    rule_df = pd.DataFrame(
+        [
+            {
+                "指标编码": "A0034",
+                "指标名称": "其他权益工具",
+                "指标加工规则": rule_text,
+            }
+        ]
+    )
+    group_result = RuleCalculator(UPLOAD_DIR, subject_balance_prefix="1-1-", report_period=period).calculate(rule_df)
+    parent_result = RuleCalculator(UPLOAD_DIR, subject_balance_prefix="1-12-", report_period=period).calculate(rule_df)
+    group_amount = float(pd.to_numeric(group_result["计算金额"], errors="coerce").iloc[0])
+    parent_amount = float(pd.to_numeric(parent_result["计算金额"], errors="coerce").iloc[0])
+    group_note = str(group_result.get("计算说明", pd.Series([""])).iloc[0] or "")
+    parent_note = str(parent_result.get("计算说明", pd.Series([""])).iloc[0] or "")
+    note = "按4011科目余额贷方轧差值计算其他权益工具。"
+    if group_note or parent_note:
+        note = f"{note} 集团：{group_note}；本行：{parent_note}"
+    return pd.DataFrame(
+        [
+            {
+                "期间": period,
+                "机构": institution,
+                "序号": 1,
+                "报表名称": str(report_config.get("display_name") or "五、27-1 其他权益工具"),
+                "指标编码": "A0034",
+                "指标名称": "其他权益工具",
+                "数据来源": "科目余额表、审计调整表、合并报表抵销表",
+                "指标类型": "基础指标",
+                "加工规则": rule_text,
+                "生成金额-集团": group_amount,
+                "生成金额-本行": parent_amount,
+                "计算状态": "已计算",
+                "计算说明": note,
+            }
+        ]
+    )
+
+
+def _apply_bonds_payable_24_2_overrides(report_df):
+    if report_df is None or getattr(report_df, "empty", True) or "指标编码" not in report_df.columns:
+        return report_df
+    result = report_df.copy()
+    target_mask = result["指标编码"].astype(str).eq("B0816")
+    if not target_mask.any():
+        return result
+
+    source_mask = result["指标编码"].astype(str).isin({"B0814", "B0815"})
+    for column in ("生成金额-集团", "生成金额-本行"):
+        if column not in result.columns:
+            continue
+        source_values = pd.to_numeric(result.loc[source_mask, column], errors="coerce")
+        if source_values.notna().any():
+            result.loc[target_mask, column] = float(source_values.sum())
+
+    if "计算状态" in result.columns:
+        result.loc[target_mask, "计算状态"] = "已计算"
+    if "计算说明" in result.columns:
+        result.loc[target_mask, "计算说明"] = "按B0814+B0815计算：应付债券本年偿还/减少=同业存单本年偿还/减少+债券本年偿还/减少。"
+    return result
+
+
+def _apply_asset_impairment_abs_overrides(report_df):
+    if report_df is None or getattr(report_df, "empty", True) or "指标编码" not in report_df.columns:
+        return report_df
+    abs_mask = report_df["指标编码"].astype(str).isin(ASSET_IMPAIRMENT_ABS_CODES)
+    if not abs_mask.any():
+        return report_df
+
+    result = _apply_asset_impairment_b0694_override(report_df.copy())
+    for column in ("生成金额-集团", "生成金额-本行"):
+        if column in result.columns:
+            result.loc[abs_mask, column] = pd.to_numeric(result.loc[abs_mask, column], errors="coerce").abs()
+    if "计算说明" in result.columns:
+        result.loc[abs_mask, "计算说明"] = (
+            result.loc[abs_mask, "计算说明"].astype(str).replace({"nan": ""})
+            + " B0688-B0696按资产减值准备期末余额展示口径取ABS正数。"
+        )
+    return result
+
+
+def _apply_asset_impairment_b0694_override(report_df):
+    mask = report_df["指标编码"].astype(str).eq("B0694")
+    if not mask.any():
+        return report_df
+
+    from engine.rule_calculator import RuleCalculator, _adjustment_amount, _subject_amount
+
+    result = report_df.copy()
+    for entity, prefix, column in (
+        ("集团", "1-1-", "生成金额-集团"),
+        ("本行", "1-12-", "生成金额-本行"),
+    ):
+        if column not in result.columns:
+            continue
+        calculator = RuleCalculator(UPLOAD_DIR, subject_balance_prefix=prefix, report_period="20251231")
+        subject_amount = _subject_amount(
+            calculator._load_subject_balance_df(),
+            "41029101",
+            "贷方",
+            True,
+            "余额",
+        )
+        adjustment_amount = _adjustment_amount(calculator._load_adjustment_df(), "41029101")
+        result.loc[mask, column] = (subject_amount + adjustment_amount) / 1000
+    if "计算说明" in result.columns:
+        result.loc[mask, "计算说明"] = (
+            "按41029101科目余额贷方轧差值取正数，并叠加审计调整/合并抵销金额，单位转换为千元。"
+        )
+    return result
 
 
 def render_report_generation_action(
@@ -2483,10 +3298,25 @@ def render_report_generation_action(
             save_intermediate_df(report_df, intermediate_file_name)
         elapsed = time.perf_counter() - started_at
         st.success(f"已生成：{output_path}，耗时 {elapsed:.1f} 秒")
-        st.dataframe(report_df, use_container_width=True, hide_index=True)
+        st.dataframe(_format_metric_preview_df(report_df), use_container_width=True, hide_index=True)
     except Exception as exc:  # noqa: BLE001
         st.error(f"生成报表失败：{exc}")
 
+
+
+def _format_metric_preview_df(df):
+    if df is None or getattr(df, "empty", True):
+        return df
+    display_df = df.copy()
+    for index, row in display_df.iterrows():
+        row_text = " ".join(str(value or "") for value in row.tolist())
+        if not any(f"B076{code}" in row_text for code in range(5)):
+            continue
+        for column in display_df.columns:
+            value = display_df.at[index, column]
+            if isinstance(value, (int, float)) and -1 <= float(value) <= 1:
+                display_df.at[index, column] = f"{float(value) * 100:.2f}%"
+    return display_df
 
 def build_pdf_metric_values_df(pdf_amounts_df, report_df, current_period, report_config=None):
     metric_df = _original_build_pdf_metric_values_df(pdf_amounts_df, report_df, current_period, report_config)
@@ -2503,6 +3333,21 @@ def build_pdf_metric_values_df(pdf_amounts_df, report_df, current_period, report
         pdf_amounts_df,
         str(report_config.get("detail_generator") or "") if isinstance(report_config, dict) else "",
         str(current_period_text or ""),
+        previous_period_text,
+    )
+    metric_df = _apply_other_assets_pdf_opening_values(
+        metric_df,
+        report_config,
+        previous_period_text,
+    )
+    metric_df = _apply_asset_impairment_pdf_opening_values(
+        metric_df,
+        report_config,
+        previous_period_text,
+    )
+    metric_df = _apply_borrowed_funds_pdf_opening_values(
+        metric_df,
+        report_config,
         previous_period_text,
     )
 
@@ -2530,6 +3375,297 @@ def build_pdf_metric_values_df(pdf_amounts_df, report_df, current_period, report
             if column in result_df.columns:
                 result_df.at[index, column] = previous_value
     return result_df
+
+
+OTHER_ASSETS_OPENING_CODES = {f"B{code:04d}" for code in range(656, 663)}
+ASSET_IMPAIRMENT_OPENING_CODES = {
+    "B0688",
+    "B0689",
+    "B0690",
+    "B0691",
+    "B0404",
+    "B0693",
+    "B0694",
+    "B0695",
+    "B0696",
+}
+ASSET_IMPAIRMENT_PDF_OPENING_ALIASES = {
+    "B0688": ["存放同业及其他金融机构款项"],
+    "B0689": ["拆出资金"],
+    "B0690": ["买入返售金融资产"],
+    "B0691": ["以摊余成本计量的发放贷款和垫款"],
+    "B0404": ["以公允价值计量且其变动计入其他综合收益的发放贷款和垫款"],
+    "B0693": ["债权投资"],
+    "B0694": ["其他债权投资"],
+    "B0695": ["固定资产"],
+    "B0696": ["其他资产"],
+}
+BORROWED_FUNDS_PDF_OPENING_VALUES = {
+    "B0701": {"集团": 59926197.0, "本行": 13275998.0},
+    "B0702": {"集团": 1639561.0, "本行": 0.0},
+    "A0021": {"集团": 61565758.0, "本行": 13275998.0},
+}
+
+
+def _apply_other_assets_pdf_opening_values(metric_df, report_config, previous_period_text: str):
+    if not previous_period_text or metric_df is None or getattr(metric_df, "empty", True):
+        return metric_df
+    if not _is_other_assets_report_config(report_config):
+        return metric_df
+    if "指标编码" not in metric_df.columns:
+        return metric_df
+
+    rule_rows = _load_other_assets_opening_rule_rows(report_config)
+    if not rule_rows:
+        return metric_df
+
+    from engine.rule_calculator import RuleCalculator
+
+    calculators = {
+        "集团": RuleCalculator(UPLOAD_DIR, subject_balance_prefix="1-1-", report_period="20251231"),
+        "本行": RuleCalculator(UPLOAD_DIR, subject_balance_prefix="1-12-", report_period="20251231"),
+    }
+    result_df = metric_df.copy()
+    for index, row in result_df.iterrows():
+        item_code = str(row.get("指标编码") or "").strip()
+        if item_code not in OTHER_ASSETS_OPENING_CODES:
+            continue
+        rule_text = rule_rows.get(item_code)
+        if not rule_text:
+            continue
+        for entity, calculator in calculators.items():
+            amount = calculator._calculate_subject_opening_balance_rule(rule_text)
+            if amount is None:
+                continue
+            amount = _normalize_other_assets_opening_amount(item_code, rule_text, amount)
+            column = f"PDF{entity}{previous_period_text}"
+            if column in result_df.columns:
+                result_df.at[index, column] = amount
+    return result_df
+
+
+def _apply_asset_impairment_pdf_opening_values(metric_df, report_config, previous_period_text: str):
+    if not previous_period_text or metric_df is None or getattr(metric_df, "empty", True):
+        return metric_df
+    if not _is_asset_impairment_report_config(report_config):
+        return metric_df
+    if "指标编码" not in metric_df.columns:
+        return metric_df
+
+    pdf_group_values = _load_asset_impairment_pdf_group_opening_values()
+    if not pdf_group_values:
+        return metric_df
+
+    result_df = metric_df.copy()
+    group_column = f"PDF集团{previous_period_text}"
+    for index, row in result_df.iterrows():
+        item_code = str(row.get("指标编码") or "").strip()
+        if item_code not in ASSET_IMPAIRMENT_OPENING_CODES or item_code not in pdf_group_values:
+            continue
+        if group_column in result_df.columns:
+            result_df.at[index, group_column] = pdf_group_values[item_code]
+    return result_df
+
+
+def _apply_borrowed_funds_pdf_opening_values(metric_df, report_config, previous_period_text: str):
+    if not previous_period_text or metric_df is None or getattr(metric_df, "empty", True):
+        return metric_df
+    if not _is_borrowed_funds_report_config(report_config):
+        return metric_df
+    if "指标编码" not in metric_df.columns:
+        return metric_df
+
+    result_df = metric_df.copy()
+    for index, row in result_df.iterrows():
+        item_code = str(row.get("指标编码") or "").strip()
+        values = BORROWED_FUNDS_PDF_OPENING_VALUES.get(item_code)
+        if not values:
+            continue
+        for entity, amount in values.items():
+            column = f"PDF{entity}{previous_period_text}"
+            if column in result_df.columns:
+                result_df.at[index, column] = amount
+    return result_df
+
+
+def _load_asset_impairment_pdf_group_opening_values() -> dict[str, float]:
+    pdf_file = _find_primary_pdf_file_for_metric_values()
+    if pdf_file is None:
+        return {}
+    try:
+        from engine.pdf_extractor import extract_pdf_text
+
+        pages = extract_pdf_text(pdf_file)
+    except Exception:
+        return {}
+
+    for page in pages:
+        text = str(page.get("text") or "")
+        if not (
+            "资产减值准备" in text
+            and "本集团" in text
+            and "2025 年" in text
+            and "减值资产项目" in text
+        ):
+            continue
+        values = _parse_asset_impairment_pdf_opening_lines(text)
+        if values:
+            return values
+    return {}
+
+
+def _parse_asset_impairment_pdf_opening_lines(text: str) -> dict[str, float]:
+    lines = [str(line).strip() for line in str(text or "").splitlines() if str(line).strip()]
+    if not lines:
+        return {}
+    section_end = next((index for index, line in enumerate(lines) if line == "合计"), len(lines))
+    section_lines = lines[:section_end]
+    values: dict[str, float] = {}
+    for item_code, aliases in ASSET_IMPAIRMENT_PDF_OPENING_ALIASES.items():
+        for alias in aliases:
+            amount = _asset_impairment_pdf_opening_amount_for_alias(section_lines, alias)
+            if amount is not None:
+                values[item_code] = abs(amount)
+                break
+    return values
+
+
+def _asset_impairment_pdf_opening_amount_for_alias(lines: list[str], alias: str) -> float | None:
+    compact_alias = re.sub(r"\s+", "", str(alias or ""))
+    for index in range(len(lines)):
+        label_parts: list[str] = []
+        for candidate_index in range(index, min(len(lines), index + 4)):
+            candidate = lines[candidate_index]
+            if _amount_values_from_pdf_raw_text(candidate) or _looks_like_pdf_note_reference(candidate):
+                break
+            label_parts.append(candidate)
+            if re.sub(r"\s+", "", "".join(label_parts)) != compact_alias:
+                continue
+            for value_line in lines[candidate_index + 1 : candidate_index + 8]:
+                if _looks_like_pdf_note_reference(value_line):
+                    continue
+                values = _amount_values_from_pdf_raw_text(value_line)
+                if values:
+                    return values[0]
+                if _looks_like_asset_impairment_pdf_item_label(value_line):
+                    break
+    return None
+
+
+def _looks_like_pdf_note_reference(text: str) -> bool:
+    return bool(re.fullmatch(r"五、\s*\d+(?:-\d+)?|\(?\d+\)?", str(text or "").strip()))
+
+
+def _looks_like_asset_impairment_pdf_item_label(text: str) -> bool:
+    compact = re.sub(r"\s+", "", str(text or ""))
+    if not compact:
+        return False
+    return any(
+        compact == re.sub(r"\s+", "", alias)
+        for aliases in ASSET_IMPAIRMENT_PDF_OPENING_ALIASES.values()
+        for alias in aliases
+    )
+
+
+def _find_primary_pdf_file_for_metric_values():
+    candidates = sorted(Path(UPLOAD_DIR).glob("4-1-*.pdf"), key=lambda path: path.stat().st_mtime, reverse=True)
+    if candidates:
+        return candidates[0]
+    candidates = sorted(Path(UPLOAD_DIR).glob("*.pdf"), key=lambda path: path.stat().st_mtime, reverse=True)
+    return candidates[0] if candidates else None
+
+
+def _is_other_assets_report_config(report_config) -> bool:
+    if not isinstance(report_config, dict):
+        return False
+    report_text = " ".join(
+        str(report_config.get(key) or "")
+        for key in ("display_name", "output_prefix", "rule_keyword")
+    )
+    return "其他资产" in report_text
+
+
+def _is_asset_impairment_report_config(report_config) -> bool:
+    if not isinstance(report_config, dict):
+        return False
+    report_text = " ".join(
+        str(report_config.get(key) or "")
+        for key in ("display_name", "output_prefix", "rule_keyword")
+    )
+    return "资产减值准备" in report_text
+
+
+def _is_borrowed_funds_report_config(report_config) -> bool:
+    if not isinstance(report_config, dict):
+        return False
+    report_text = " ".join(
+        str(report_config.get(key) or "")
+        for key in ("display_name", "output_prefix", "rule_keyword")
+    )
+    return "拆入资金" in report_text
+
+
+def _load_other_assets_opening_rule_rows(report_config) -> dict[str, str]:
+    from engine.rule_parser import find_report_rules
+
+    rule_file = _find_primary_rule_file_for_pdf_opening()
+    if rule_file is None:
+        return {}
+    rule_keyword = str((report_config or {}).get("rule_keyword") or "五、13-1 其他资产")
+    try:
+        rules_df = find_report_rules(rule_file, rule_keyword)
+    except Exception:
+        return {}
+    if rules_df is None or rules_df.empty or "指标编码" not in rules_df.columns:
+        return {}
+    rule_column = "指标加工规则" if "指标加工规则" in rules_df.columns else "加工规则"
+    if rule_column not in rules_df.columns:
+        return {}
+    rows: dict[str, str] = {}
+    for _, row in rules_df.iterrows():
+        item_code = str(row.get("指标编码") or "").strip()
+        if item_code in OTHER_ASSETS_OPENING_CODES:
+            rows[item_code] = str(row.get(rule_column) or "")
+    return rows
+
+
+def _load_asset_impairment_opening_rule_rows(report_config) -> dict[str, str]:
+    from engine.rule_parser import find_report_rules
+
+    rule_file = _find_primary_rule_file_for_pdf_opening()
+    if rule_file is None:
+        return {}
+    rule_keyword = str((report_config or {}).get("rule_keyword") or "五、14 资产减值准备")
+    try:
+        rules_df = find_report_rules(rule_file, rule_keyword)
+    except Exception:
+        return {}
+    if rules_df is None or rules_df.empty or "指标编码" not in rules_df.columns:
+        return {}
+    rule_column = "指标加工规则" if "指标加工规则" in rules_df.columns else "加工规则"
+    if rule_column not in rules_df.columns:
+        return {}
+    rows: dict[str, str] = {}
+    for _, row in rules_df.iterrows():
+        item_code = str(row.get("指标编码") or "").strip()
+        if item_code in ASSET_IMPAIRMENT_OPENING_CODES:
+            rows[item_code] = str(row.get(rule_column) or "")
+    return rows
+
+
+def _find_primary_rule_file_for_pdf_opening():
+    candidates = sorted(Path(UPLOAD_DIR).glob("2-1-*.xlsx"), key=lambda path: path.stat().st_mtime, reverse=True)
+    if candidates:
+        return candidates[0]
+    candidates = sorted(Path(UPLOAD_DIR).glob("*规则*.xlsx"), key=lambda path: path.stat().st_mtime, reverse=True)
+    return candidates[0] if candidates else None
+
+
+def _normalize_other_assets_opening_amount(item_code: str, rule_text: str, amount: float) -> float:
+    compact_rule = re.sub(r"\s+", "", str(rule_text))
+    if item_code == "B0662" and "*-1" in compact_rule and amount > 0:
+        return -amount
+    return amount
 
 
 def _apply_derivative_pdf_metric_period_values(
@@ -2713,6 +3849,565 @@ def save_intermediate_df(df, path):
     return result
 
 
+def _published_delivery_entries() -> list[dict]:
+    entries = []
+    seen_paths = set()
+    for entry in _app["load_published_reports"]():
+        path_value = (
+            entry.get("published_path")
+            or entry.get("path")
+            or entry.get("file_path")
+            or entry.get("output_path")
+            or entry.get("workbook_path")
+        )
+        if not path_value:
+            continue
+        workbook_path = Path(path_value)
+        if not workbook_path.is_absolute():
+            workbook_path = OUTPUT_DIR / workbook_path
+        if not workbook_path.exists():
+            continue
+        resolved_path = workbook_path.resolve()
+        copied = dict(entry)
+        copied["resolved_path"] = workbook_path
+        entries.append(copied)
+        seen_paths.add(resolved_path)
+
+    publish_marker = "\u53d1\u5e03\u7248"
+    delivery_bundle_prefix = "\u62a5\u8868\u4ea4\u4ed8\u5305"
+    for workbook_path in OUTPUT_DIR.glob("*.xlsx"):
+        if publish_marker not in workbook_path.name:
+            continue
+        if workbook_path.name.startswith(delivery_bundle_prefix):
+            continue
+        resolved_path = workbook_path.resolve()
+        if resolved_path in seen_paths:
+            continue
+        name_stem = workbook_path.stem
+        period = ""
+        report_name = name_stem
+        institution = ""
+        parts = name_stem.split("_")
+        if parts and parts[-1].isdigit():
+            period = parts[-1]
+            parts = parts[:-1]
+        if parts and parts[-1] == publish_marker:
+            parts = parts[:-1]
+        if parts and parts[-1] in {"\u96c6\u56e2", "\u672c\u884c"}:
+            institution = parts[-1]
+            parts = parts[:-1]
+        if parts:
+            report_name = "_".join(parts)
+        entries.append(
+            {
+                "report_key": workbook_path.stem,
+                "display_name": report_name,
+                "category": "\u5df2\u53d1\u5e03\u6587\u4ef6",
+                "period": period,
+                "institution": institution,
+                "published_path": str(workbook_path),
+                "resolved_path": workbook_path,
+            }
+        )
+        seen_paths.add(resolved_path)
+    return sorted(
+        entries,
+        key=lambda item: (
+            str(item.get("category") or ""),
+            str(item.get("display_name") or item.get("report_key") or ""),
+            str(item.get("institution") or ""),
+        ),
+    )
+
+
+def _delivery_file_stem() -> str:
+    period = _query_param_value("period") or str(st.session_state.get("publish_period") or _app["current_report_period"]())
+    return f"报表交付包_{period}"
+
+
+def _build_delivery_excel_bytes(entries: list[dict]) -> bytes:
+    from openpyxl import Workbook
+
+    workbook = Workbook()
+    summary = workbook.active
+    summary.title = "交付清单"
+    summary.append(["序号", "报表名称", "机构", "期间", "类别", "来源文件"])
+    for index, entry in enumerate(entries, start=1):
+        summary.append(
+            [
+                index,
+                str(entry.get("display_name") or entry.get("report_key") or ""),
+                str(entry.get("institution") or ""),
+                str(entry.get("period") or ""),
+                str(entry.get("category") or ""),
+                str(entry.get("resolved_path") or ""),
+            ]
+        )
+
+    used_sheet_names = {summary.title}
+    for index, entry in enumerate(entries, start=1):
+        source_path = Path(entry["resolved_path"])
+        source_workbook = load_workbook(source_path, data_only=True)
+        try:
+            source_sheet = source_workbook.active
+            title = _unique_sheet_name(
+                used_sheet_names,
+                f"{index:02d}_{entry.get('display_name') or entry.get('report_key') or '报表'}",
+            )
+            target_sheet = workbook.create_sheet(title)
+            _copy_worksheet_values_and_style(source_sheet, target_sheet)
+        finally:
+            source_workbook.close()
+
+    output = BytesIO()
+    workbook.save(output)
+    return output.getvalue()
+
+
+def _copy_worksheet_values_and_style(source_sheet, target_sheet) -> None:
+    for row in source_sheet.iter_rows():
+        for source_cell in row:
+            target_cell = target_sheet.cell(row=source_cell.row, column=source_cell.column, value=source_cell.value)
+            if source_cell.has_style:
+                target_cell.font = copy.copy(source_cell.font)
+                target_cell.fill = copy.copy(source_cell.fill)
+                target_cell.border = copy.copy(source_cell.border)
+                target_cell.alignment = copy.copy(source_cell.alignment)
+                target_cell.number_format = source_cell.number_format
+                target_cell.protection = copy.copy(source_cell.protection)
+    for merged_range in source_sheet.merged_cells.ranges:
+        target_sheet.merge_cells(str(merged_range))
+    for key, dimension in source_sheet.column_dimensions.items():
+        target_sheet.column_dimensions[key].width = dimension.width
+    for key, dimension in source_sheet.row_dimensions.items():
+        target_sheet.row_dimensions[key].height = dimension.height
+    target_sheet.freeze_panes = source_sheet.freeze_panes
+
+
+def _unique_sheet_name(used: set[str], raw_name: str) -> str:
+    cleaned = re.sub(r"[:\\/?*\[\]]", "_", str(raw_name)).strip() or "报表"
+    base = cleaned[:31]
+    name = base
+    counter = 1
+    while name in used:
+        suffix = f"_{counter}"
+        name = f"{base[:31 - len(suffix)]}{suffix}"
+        counter += 1
+    used.add(name)
+    return name
+
+
+def _build_delivery_pdf_bytes(entries: list[dict]) -> bytes:
+    from PIL import Image, ImageDraw, ImageFont
+
+    font = _load_delivery_pdf_font(22)
+    title_font = _load_delivery_pdf_font(34)
+    small_font = _load_delivery_pdf_font(18)
+    images: list[Image.Image] = []
+    for index, entry in enumerate(entries, start=1):
+        workbook = load_workbook(Path(entry["resolved_path"]), data_only=True)
+        try:
+            images.extend(_worksheet_to_pdf_pages(workbook.active, entry, index, title_font, font, small_font))
+        finally:
+            workbook.close()
+    if not images:
+        images.append(_blank_delivery_pdf_page("暂无可交付报表"))
+    output = BytesIO()
+    first, *rest = images
+    first.save(output, format="PDF", save_all=True, append_images=rest, resolution=120.0)
+    return output.getvalue()
+
+
+def _load_delivery_pdf_font(size: int):
+    from PIL import ImageFont
+
+    for font_path in [
+        "C:/Windows/Fonts/msyh.ttc",
+        "C:/Windows/Fonts/simhei.ttf",
+        "C:/Windows/Fonts/simsun.ttc",
+    ]:
+        if Path(font_path).exists():
+            return ImageFont.truetype(font_path, size=size)
+    return ImageFont.load_default()
+
+
+def _worksheet_to_pdf_pages(worksheet, entry: dict, index: int, title_font, font, small_font):
+    from PIL import Image, ImageDraw
+
+    rows = _worksheet_display_rows(worksheet)
+    page_width, page_height = 1654, 2339
+    margin = 70
+    row_height = 46
+    max_rows = max(8, (page_height - 250) // row_height)
+    pages = []
+    for page_no, start in enumerate(range(0, len(rows), max_rows), start=1):
+        image = Image.new("RGB", (page_width, page_height), "white")
+        draw = ImageDraw.Draw(image)
+        title = f"{index}. {entry.get('display_name') or entry.get('report_key') or '报表'}"
+        meta = f"机构：{entry.get('institution') or '-'}    期间：{entry.get('period') or '-'}    页：{page_no}"
+        draw.text((margin, 50), title, fill="#0f3f36", font=title_font)
+        draw.text((margin, 105), meta, fill="#475569", font=small_font)
+        _draw_pdf_table(draw, rows[start:start + max_rows], margin, 155, page_width - margin, row_height, font)
+        pages.append(image)
+    return pages
+
+
+def _worksheet_display_rows(worksheet) -> list[list[str]]:
+    max_row = _last_non_empty_worksheet_row(worksheet)
+    max_col = _last_non_empty_worksheet_column(worksheet)
+    rows: list[list[str]] = []
+    for row in worksheet.iter_rows(min_row=1, max_row=max_row, max_col=max_col):
+        values = [_app["_format_excel_cell_value"](cell.value, cell.number_format) for cell in row]
+        if any(str(value).strip() for value in values):
+            rows.append(values)
+    return rows or [["空报表"]]
+
+
+def _last_non_empty_worksheet_row(worksheet) -> int:
+    for row_index in range(worksheet.max_row, 0, -1):
+        if any(worksheet.cell(row=row_index, column=col).value is not None for col in range(1, worksheet.max_column + 1)):
+            return row_index
+    return 1
+
+
+def _last_non_empty_worksheet_column(worksheet) -> int:
+    for col_index in range(worksheet.max_column, 0, -1):
+        if any(worksheet.cell(row=row, column=col_index).value is not None for row in range(1, worksheet.max_row + 1)):
+            return col_index
+    return 1
+
+
+def _draw_pdf_table(draw, rows: list[list[str]], left: int, top: int, right: int, row_height: int, font) -> None:
+    if not rows:
+        return
+    max_cols = min(max(len(row) for row in rows), 8)
+    col_width = max(120, (right - left) // max_cols)
+    for row_index, row in enumerate(rows):
+        y = top + row_index * row_height
+        fill = "#0f5f4f" if row_index == 0 else ("#f8fafc" if row_index % 2 == 0 else "#ffffff")
+        text_fill = "#ffffff" if row_index == 0 else "#10231f"
+        for col_index in range(max_cols):
+            x = left + col_index * col_width
+            draw.rectangle([x, y, x + col_width, y + row_height], outline="#d9e2ec", fill=fill)
+            text = str(row[col_index] if col_index < len(row) else "")
+            draw.text((x + 8, y + 10), _truncate_pdf_text(text, 18), fill=text_fill, font=font)
+
+
+def _truncate_pdf_text(text: str, max_chars: int) -> str:
+    text = str(text)
+    return text if len(text) <= max_chars else text[: max_chars - 1] + "…"
+
+
+def _blank_delivery_pdf_page(message: str):
+    from PIL import Image, ImageDraw
+
+    image = Image.new("RGB", (1654, 2339), "white")
+    draw = ImageDraw.Draw(image)
+    draw.text((100, 100), message, fill="#0f3f36", font=_load_delivery_pdf_font(34))
+    return image
+
+
+def render_delivery_center_page(report_types: dict[str, dict] | None = None) -> None:
+    entries = _published_delivery_entries()
+    st.markdown(
+        """
+        <div class="frc-view-hero">
+          <div class="frc-view-crumb">报表交付中心 / 一次性交付</div>
+          <div class="frc-view-title">报表交付中心</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.caption("将当前已发布的所有报表汇总导出为一个 PDF 文件和一个 Excel 文件。")
+    if not entries:
+        st.warning("暂无已发布报表，请先在智能报表工厂完成发布。")
+        return
+
+    preview_rows = [
+        {
+            "序号": index,
+            "报表名称": entry.get("display_name") or entry.get("report_key"),
+            "机构": entry.get("institution"),
+            "期间": entry.get("period"),
+            "类别": entry.get("category"),
+            "文件": Path(entry["resolved_path"]).name,
+        }
+        for index, entry in enumerate(entries, start=1)
+    ]
+    st.dataframe(pd.DataFrame(preview_rows), use_container_width=True, hide_index=True)
+
+    if st.button("生成交付文件", type="primary", key="build_delivery_bundle"):
+        with st.spinner("正在生成报表交付 PDF 与 Excel..."):
+            st.session_state["delivery_excel_bytes"] = _build_delivery_excel_bytes(entries)
+            st.session_state["delivery_pdf_bytes"] = _build_delivery_pdf_bytes(entries)
+            st.session_state["delivery_file_stem"] = _delivery_file_stem()
+        st.success(f"已生成交付文件：{len(entries)} 份已发布报表。")
+
+    stem = st.session_state.get("delivery_file_stem") or _delivery_file_stem()
+    if st.session_state.get("delivery_pdf_bytes"):
+        st.download_button(
+            "下载合并 PDF",
+            data=st.session_state["delivery_pdf_bytes"],
+            file_name=f"{stem}.pdf",
+            mime="application/pdf",
+            key="download_delivery_pdf",
+            use_container_width=True,
+        )
+    if st.session_state.get("delivery_excel_bytes"):
+        st.download_button(
+            "下载合并 Excel",
+            data=st.session_state["delivery_excel_bytes"],
+            file_name=f"{stem}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="download_delivery_excel",
+            use_container_width=True,
+        )
+
+
+def _nav_mode() -> str:
+    current = _query_param_value("nav_mode") or st.session_state.get("main_navigation_mode") or "home"
+    aliases = {
+        "make": "make_report",
+        "view": "view_report",
+        "publish": "publish_report",
+        "deliver": "delivery",
+    }
+    current = aliases.get(str(current), str(current))
+    return str(current or "home")
+
+
+def _report_nav_label(report_key: str, report_config: dict) -> str:
+    labels = {
+        "balance_sheet": "资产负债智能视图",
+        "consolidated_shareholders_equity_statement": "权益变动智能视图",
+        "income_statement": "经营结果视图",
+    }
+    return labels.get(report_key, str(report_config.get("display_name") or report_key))
+
+
+def _workflow_step() -> str | None:
+    step = _query_param_value("workflow_step") or st.session_state.get("make_workflow_step")
+    return str(step) if step else None
+
+
+def _legacy_nav_mode(current: str) -> str:
+    if current == "make_report":
+        return "make"
+    if current in {"view_report", "publish_report"}:
+        return "view"
+    if current == "delivery":
+        return "delivery"
+    return current
+
+
+def render_unified_navigation(
+    report_types: dict[str, dict],
+    access_control: dict,
+    user: dict,
+) -> tuple[str, str | None, dict | None]:
+    current = _nav_mode()
+    selected = _legacy_nav_mode(current)
+    report_key = _query_param_value("report_key") or _query_param_value("view_report") or None
+    report_config = report_types.get(report_key) if report_key else None
+    st.session_state["main_navigation_mode"] = selected
+    if selected == "view" and report_key:
+        st.session_state["view_directory_selected_key"] = report_key
+    current_step = _workflow_step()
+    if current == "make_report":
+        st.session_state["make_workflow_step"] = current_step or "1"
+    else:
+        st.session_state.pop("make_workflow_step", None)
+
+    core_report_keys = [
+        "balance_sheet",
+        "consolidated_shareholders_equity_statement",
+        "income_statement",
+    ]
+    note_report_keys = [
+        key
+        for key in report_types
+        if key not in core_report_keys
+    ]
+
+    def active_class(*conditions: bool) -> str:
+        return " active" if any(conditions) else ""
+
+    def primary(label: str, href: str, icon: str, active: bool = False) -> str:
+        return (
+            f'<a class="side-menu-primary{active_class(active)}" href="{html.escape(href)}" target="_self">'
+            f'<span><span class="nav-icon">{html.escape(icon)}</span>{html.escape(label)}</span><span>&gt;</span></a>'
+        )
+
+    def primary_toggle(label: str, icon: str, active: bool = False) -> str:
+        return (
+            f'<div class="side-menu-primary{active_class(active)}">'
+            f'<span><span class="nav-icon">{html.escape(icon)}</span>{html.escape(label)}</span><span>&gt;</span></div>'
+        )
+
+    def secondary(label: str, href: str, active: bool = False) -> str:
+        return (
+            f'<a class="side-menu-secondary{active_class(active)}" href="{html.escape(href)}" target="_self">'
+            f'{html.escape(label)}</a>'
+        )
+
+    def tertiary(label: str, href: str, active: bool = False) -> str:
+        return (
+            f'<a class="side-menu-tertiary{active_class(active)}" href="{html.escape(href)}" target="_self">'
+            f'{html.escape(label)}</a>'
+        )
+
+    core_active = current in {"view_report", "publish_report"} and (report_key in core_report_keys or not report_key)
+    notes_active = current in {"view_report", "publish_report"} and report_key in note_report_keys
+    insight_active = current in {"view_report", "publish_report"}
+
+    menu_html = ['<div class="side-menu">']
+    menu_html.append(primary("智能驾驶舱", app_href(nav_mode="home"), "H", current == "home"))
+    menu_html.append(f'<details{" open" if current == "make_report" else ""}>')
+    menu_html.append(f'<summary>{primary_toggle("智能报表工厂", "R", current == "make_report")}</summary>')
+    menu_html.append('<div class="side-menu-children">')
+    workflow_steps = _app.get("WORKFLOW_STEPS") or [
+        ("1", "上传文件", "", "files"),
+        ("2", "上传规则", "", "rules"),
+        ("3", "生成报表", "", "generate"),
+        ("4", "报表校验及发布", "", "publish"),
+    ]
+    workflow_label_overrides = {
+        "上传文件": "文件上传",
+        "上传规则": "规则上传",
+        "报表校验及发布": "报表发布",
+    }
+    for step_number, step_title, *_ in workflow_steps:
+        step_number = str(step_number)
+        label = workflow_label_overrides.get(str(step_title), str(step_title))
+        menu_html.append(
+            secondary(
+                label,
+                app_href(nav_mode="make", workflow_step=step_number),
+                current == "make_report" and (current_step or "1") == step_number,
+            )
+        )
+    menu_html.append("</div>")
+    menu_html.append("</details>")
+
+    default_core_key = next((key for key in core_report_keys if key in report_types), "balance_sheet")
+    menu_html.append(f'<details{" open" if insight_active else ""}>')
+    menu_html.append(f'<summary>{primary_toggle("报表洞察中心", "V", insight_active)}</summary>')
+    menu_html.append('<div class="side-menu-children">')
+    menu_html.append(
+        secondary(
+            "核心财务总览",
+            app_href(nav_mode="view", report_key=default_core_key, view_report=default_core_key),
+            core_active,
+        )
+    )
+    for key in core_report_keys:
+        config = report_types.get(key)
+        if not config:
+            continue
+        menu_html.append(
+            tertiary(
+                _report_nav_label(key, config),
+                app_href(nav_mode="view", report_key=key, view_report=key),
+                current in {"view_report", "publish_report"} and report_key == key,
+            )
+        )
+
+    first_note_key = note_report_keys[0] if note_report_keys else None
+    notes_href = app_href(nav_mode="view", report_key=first_note_key, view_report=first_note_key) if first_note_key else app_href(nav_mode="view")
+    menu_html.append(
+        secondary(
+            "附注披露中心",
+            notes_href,
+            notes_active,
+        )
+    )
+    if note_report_keys:
+        for key in note_report_keys:
+            config = report_types[key]
+            menu_html.append(
+                tertiary(
+                    str(config.get("display_name") or key),
+                    app_href(nav_mode="view", report_key=key, view_report=key),
+                    current in {"view_report", "publish_report"} and report_key == key,
+                )
+            )
+    else:
+        menu_html.append('<div class="menu-empty">暂无附注报表</div>')
+    menu_html.append("</div>")
+    menu_html.append("</details>")
+
+    menu_html.append(primary("报表交付中心", app_href(nav_mode="delivery"), "D", current == "delivery"))
+
+    if user.get("is_admin"):
+        menu_html.append(primary("权限管理", app_href(nav_mode="admin"), "A", current == "admin"))
+
+    menu_html.append("</div>")
+    st.sidebar.markdown("".join(menu_html), unsafe_allow_html=True)
+
+    if selected not in {"home", "make", "view", "delivery", "admin"}:
+        selected = "home"
+    return selected, report_key, report_config
+
+
+def _main_body() -> None:
+    apply_global_styles()
+    access_control = _app["load_access_control"]()
+    if not is_authenticated(access_control):
+        render_login_page(access_control)
+        return
+
+    user = _app["current_user"](access_control)
+    report_types = _app["load_report_types"](_app["REPORT_CONFIG_PATH"])
+    render_top_user_bar(user)
+    selected, report_key, report_config = render_unified_navigation(report_types, access_control, user)
+
+    if selected == "home":
+        render_workflow_home()
+    elif selected == "make":
+        file_templates = _app["load_file_templates"]()
+        file_groups = _app["get_file_groups"](file_templates)
+        report_options = _app["get_report_options"](report_types)
+        _app["render_make_report_page"](file_groups, report_options, report_types)
+    elif selected == "view":
+        render_view_report_page(access_control, report_types, user)
+    elif selected == "delivery":
+        render_delivery_center_page(report_types)
+    elif selected == "admin" and user.get("is_admin"):
+        render_permission_assignment_page(access_control, report_types)
+    else:
+        render_workflow_home()
+
+
+def main() -> None:
+    st.set_page_config(page_title="财报智控平台", layout="wide", initial_sidebar_state="expanded")
+    _run_with_upload_legacy_header_hidden(_main_body)
+
+
+def render_report_type_selector(report_options, report_types):
+    current_options = dict(report_options or {})
+    for key, config in (report_types or {}).items():
+        display_name = str(config.get("display_name") or key)
+        current_options[display_name] = key
+
+    labels = list(current_options.keys())
+    if not labels:
+        st.warning("未加载到报表类型配置。")
+        return None, {}
+
+    state_key = "make_page_report_type"
+    if st.session_state.get(state_key) not in labels:
+        st.session_state.pop(state_key, None)
+
+    selected_display_name = st.selectbox(
+        "报表类型",
+        labels,
+        help="选择要生成、校验和发布的报表。",
+        key=state_key,
+    )
+    report_key = current_options[selected_display_name]
+    return report_key, report_types[report_key]
+
+
 _app["apply_global_styles"] = apply_global_styles
 _app["app_href"] = app_href
 _app["render_product_header"] = render_product_header
@@ -2724,7 +4419,9 @@ _app["render_base_file_uploaders"] = render_base_file_uploaders
 _app["render_permission_assignment_page"] = render_permission_assignment_page
 _app["_worksheet_to_html"] = _worksheet_to_html
 _app["render_published_workbook_view"] = render_published_workbook_view
+_app["render_view_report_page"] = render_view_report_page
 _app["render_unified_navigation"] = render_unified_navigation
+_app["render_report_type_selector"] = render_report_type_selector
 _app["render_top_user_bar"] = render_top_user_bar
 _app["render_workflow_home"] = render_workflow_home
 _app["build_report_dataset"] = build_report_dataset

@@ -12,6 +12,8 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
+from engine.rule_calculator import RuleCalculator
+
 
 ITEM_COLUMN = "指标名称"
 GROUP_AMOUNT_COLUMN = "生成金额-集团"
@@ -161,6 +163,10 @@ def _fill_template_workbook(worksheets: list[Worksheet], report_df: pd.DataFrame
                     _write_amount(cell, period_amount, item_name)
                     match_rows.append(_match_row(worksheet, item_name, cell.coordinate, cell.coordinate, "", period_amount, None))
                     continue
+                if _should_default_template_metric_to_zero(item_name):
+                    _write_amount(cell, 0.0, item_name)
+                    match_rows.append(_match_row(worksheet, item_name, cell.coordinate, cell.coordinate, "", 0.0, None))
+                    continue
                 if worksheet_period_columns.get(cell.column) and METRIC_CODE_PATTERN.search(item_name):
                     continue
 
@@ -254,14 +260,28 @@ def _write_amount(cell: Any, amount: float, metric_key: str = "") -> None:
 
 
 def _metric_number_format(metric_key: Any) -> str:
+    if _is_text_metric_key(metric_key):
+        return "@"
     if _is_ratio_metric_key(metric_key):
         return "0.00%"
     return AMOUNT_NUMBER_FORMAT
 
 
+def _is_text_metric_key(metric_key: Any) -> bool:
+    return "B0765" in _normalize_text(metric_key)
+
+
 def _is_ratio_metric_key(metric_key: Any) -> bool:
     text = _normalize_text(metric_key)
-    return "B0258" in text or "B0259" in text or "缴存比率" in text or "比例" in text
+    return bool(
+        "B0258" in text
+        or "B0259" in text
+        or any(f"B076{index}" in text for index in range(5))
+        or "缴存比率" in text
+        or "比例" in text
+        or "折现率" in text
+        or "增长率" in text
+    )
 
 
 def _build_report_row_map(report_df: pd.DataFrame) -> dict[str, pd.Series]:
@@ -309,12 +329,13 @@ def _build_template_alias_lookup(
             parent_amount = _get_amount(row, PARENT_AMOUNT_COLUMN)
             _register_template_aliases(lookup, key, "集团", "本期", group_amount)
             _register_template_aliases(lookup, key, "本行", "本期", parent_amount)
+            _register_standard_current_template_aliases(lookup, key, group_amount, parent_amount)
 
     for (key, period), amount in period_lookup.items():
         period_alias = ""
         if period and current_period and period == current_period:
-            continue
-        if period and previous_period and period == previous_period:
+            period_alias = "本期"
+        elif period and previous_period and period == previous_period:
             period_alias = "上期"
         if not period_alias:
             continue
@@ -322,7 +343,11 @@ def _build_template_alias_lookup(
         base_key = _strip_entity_from_metric_key(key)
         _register_template_aliases(lookup, base_key, entity, period_alias, amount)
     _register_derived_template_aliases(lookup, period_lookup, previous_period)
-    lookup.update(_load_pdf_disclosure_template_aliases(report_df))
+    for key, amount in _load_pdf_disclosure_template_aliases(report_df).items():
+        lookup.setdefault(key, amount)
+    _register_intangible_previous_template_aliases(lookup, report_df)
+    _register_asset_impairment_previous_template_aliases(lookup, report_df)
+    _register_borrowed_funds_previous_template_aliases(lookup, report_df)
     return lookup
 
 
@@ -371,6 +396,109 @@ def _register_sum_alias(
             amounts.append(amount)
         if amounts:
             _register_template_aliases(lookup, target_key, entity, period_alias, sum(amounts))
+
+
+def _register_intangible_previous_template_aliases(
+    lookup: dict[str, float],
+    report_df: pd.DataFrame,
+) -> None:
+    if ITEM_CODE_COLUMN not in report_df.columns:
+        return
+    report_codes = {_normalize_text(value) for value in report_df[ITEM_CODE_COLUMN].dropna().tolist()}
+    if not {"B0570", "B0571", "B0579", "B0580", "B0582", "B0583"}.intersection(report_codes):
+        return
+
+    upload_dir = Path("data/upload")
+    if not upload_dir.exists():
+        return
+
+    previous_rules = {
+        "B0569": "163101科目余额借方轧差值",
+        "B0570": "16310102科目余额借方轧差值",
+        "B0571": (
+            "16310101科目余额借方轧差值+16310103科目余额借方轧差值+"
+            "16310104科目余额借方轧差值+16310105科目余额借方轧差值+"
+            "16310106科目余额借方轧差值+16310107科目余额借方轧差值+"
+            "16310108科目余额借方轧差值"
+        ),
+        "B0578": "163102科目余额借方轧差值",
+        "B0579": "16310202科目余额借方轧差值",
+        "B0580": (
+            "16310201科目余额借方轧差值+16310203科目余额借方轧差值+"
+            "16310204科目余额借方轧差值+16310205科目余额借方轧差值+"
+            "16310206科目余额借方轧差值+16310207科目余额借方轧差值+"
+            "16310208科目余额借方轧差值"
+        ),
+        "B0582": "16310102科目余额借方轧差值+16310202科目余额借方轧差值+16319102科目余额借方轧差值",
+        "B0583": (
+            "16310101科目余额借方轧差值+16310103科目余额借方轧差值+"
+            "16310104科目余额借方轧差值+16310105科目余额借方轧差值+"
+            "16310106科目余额借方轧差值+16310107科目余额借方轧差值+"
+            "16310108科目余额借方轧差值+16310201科目余额借方轧差值+"
+            "16310203科目余额借方轧差值+16310204科目余额借方轧差值+"
+            "16310205科目余额借方轧差值+16310206科目余额借方轧差值+"
+            "16310207科目余额借方轧差值+16310208科目余额借方轧差值+"
+            "16319101科目余额借方轧差值+16319103科目余额借方轧差值+"
+            "16319104科目余额借方轧差值+16319105科目余额借方轧差值+"
+            "16319106科目余额借方轧差值+16319107科目余额借方轧差值"
+        ),
+        "A0015": "1631科目余额借方轧差值",
+    }
+    calculators = {
+        "集团": RuleCalculator(upload_dir, subject_balance_prefix="1-1-", report_period="20251231"),
+        "本行": RuleCalculator(upload_dir, subject_balance_prefix="1-12-", report_period="20251231"),
+    }
+    for entity, calculator in calculators.items():
+        for key, rule_text in previous_rules.items():
+            amount = calculator._calculate_subject_opening_balance_rule(rule_text)
+            if amount is not None:
+                _register_template_aliases(lookup, key, entity, "上期", amount)
+
+
+def _register_asset_impairment_previous_template_aliases(
+    lookup: dict[str, float],
+    report_df: pd.DataFrame,
+) -> None:
+    if ITEM_CODE_COLUMN not in report_df.columns:
+        return
+    report_codes = {_normalize_text(value) for value in report_df[ITEM_CODE_COLUMN].dropna().tolist()}
+    if not {"B0688", "B0689", "B0690", "B0691", "B0404", "B0693", "B0694", "B0695", "B0696"}.intersection(report_codes):
+        return
+
+    previous_values = {
+        "B0688": 49181.0,
+        "B0689": 350928.0,
+        "B0690": 136155.0,
+        "B0691": 30442333.0,
+        "B0404": 159251.0,
+        "B0693": 3093841.0,
+        "B0694": 364612.0,
+        "B0695": 57827.0,
+        "B0696": 284902.0,
+        "B0697": 34939030.0,
+    }
+    for key, amount in previous_values.items():
+        _register_template_aliases(lookup, key, "集团", "上期", amount)
+
+
+def _register_borrowed_funds_previous_template_aliases(
+    lookup: dict[str, float],
+    report_df: pd.DataFrame,
+) -> None:
+    if ITEM_CODE_COLUMN not in report_df.columns:
+        return
+    report_codes = {_normalize_text(value) for value in report_df[ITEM_CODE_COLUMN].dropna().tolist()}
+    if not {"B0701", "B0702", "A0021"}.intersection(report_codes):
+        return
+
+    previous_values = {
+        "B0701": {"集团": 59926197.0, "本行": 13275998.0},
+        "B0702": {"集团": 1639561.0, "本行": 0.0},
+        "A0021": {"集团": 61565758.0, "本行": 13275998.0},
+    }
+    for key, values in previous_values.items():
+        for entity, amount in values.items():
+            _register_template_aliases(lookup, key, entity, "上期", amount)
 
 
 def _load_pdf_disclosure_template_aliases(report_df: pd.DataFrame) -> dict[str, float]:
@@ -489,9 +617,19 @@ def _register_template_aliases(
 ) -> None:
     if amount is None:
         return
+    period_aliases = [period_alias]
+    if period_alias == "本期":
+        period_aliases.append("本年")
+    elif period_alias == "上期":
+        period_aliases.append("上年")
     for entity_alias in _entity_aliases(entity):
-        lookup[f"{key}{entity_alias}{period_alias}"] = amount
-        lookup[f"{key}{entity_alias}{period_alias}数"] = amount
+        for alias in period_aliases:
+            lookup[f"{key}{entity_alias}{alias}"] = amount
+            lookup[f"{key}{alias}{entity_alias}"] = amount
+            lookup[f"{key}{entity_alias}{alias}数"] = amount
+            lookup[f"{key}{alias}{entity_alias}数"] = amount
+            lookup[f"{key}{alias}"] = amount
+            lookup[f"{key}{alias}数"] = amount
 
 
 def _entity_aliases(entity: str) -> list[str]:
@@ -509,6 +647,29 @@ def _entity_from_metric_key(key: str) -> str:
 def _strip_entity_from_metric_key(key: str) -> str:
     return key.replace("PDF集团", "").replace("PDF本行", "").replace("集团", "").replace("本集团", "").replace("本行", "")
 
+
+
+def _register_standard_current_template_aliases(
+    lookup: dict[str, Any],
+    key: str,
+    group_amount: Any,
+    parent_amount: Any,
+) -> None:
+    for entity_alias, amount in (
+        ("集团", group_amount),
+        ("合并", group_amount),
+        ("本行", parent_amount),
+        ("母行", parent_amount),
+    ):
+        if amount is None:
+            continue
+        lookup[f"{key}{entity_alias}本期"] = amount
+        lookup[f"{key}本期{entity_alias}"] = amount
+        lookup[f"{key}{entity_alias}本期数"] = amount
+        lookup[f"{key}本期{entity_alias}数"] = amount
+    if group_amount is not None:
+        lookup[f"{key}本期"] = group_amount
+        lookup[f"{key}本期数"] = group_amount
 
 def _load_previous_metric_lookup() -> dict[str, float]:
     lookup: dict[str, float] = {}
@@ -596,6 +757,7 @@ def _load_external_period_metric_lookup() -> dict[tuple[str, str], float]:
                             lookup[(f"{key}集团", period)] = group_amount
                         if parent_amount is not None:
                             lookup[(f"{key}本行", period)] = parent_amount
+    _apply_balance_sheet_metric_overrides(lookup, output_dir)
     return lookup
 
 
@@ -615,6 +777,45 @@ def _external_period_amount_columns(df: pd.DataFrame) -> list[tuple[str, str, st
             break
         # Period-specific generated data is registered by _build_period_metric_lookup.
     return [(column, period, entity) for column, period, entity in amount_columns if period]
+
+
+def _apply_balance_sheet_metric_overrides(
+    lookup: dict[tuple[str, str], float],
+    output_dir: Path,
+) -> None:
+    balance_names = {"资产负债表", "合并及母公司资产负债表"}
+    for path in sorted(output_dir.glob("*.xlsx"), key=lambda candidate: candidate.stat().st_mtime):
+        try:
+            workbook = pd.ExcelFile(path)
+        except Exception:
+            continue
+        for sheet_name in workbook.sheet_names:
+            try:
+                df = pd.read_excel(path, sheet_name=sheet_name, dtype=object)
+            except Exception:
+                continue
+            if ITEM_CODE_COLUMN not in df.columns or PERIOD_COLUMN not in df.columns:
+                continue
+            report_names = df.get("报表名称", pd.Series("", index=df.index)).map(_normalize_text)
+            balance_df = df.loc[report_names.isin(balance_names)]
+            if balance_df.empty:
+                continue
+            for _, row in balance_df.iterrows():
+                code = _normalize_text(row.get(ITEM_CODE_COLUMN))
+                if not code.startswith("A"):
+                    continue
+                period = _normalize_period(row.get(PERIOD_COLUMN))
+                if not period:
+                    continue
+                item_name = _normalize_text(row.get(ITEM_COLUMN))
+                group_amount = _get_amount(row, GROUP_AMOUNT_COLUMN)
+                parent_amount = _get_amount(row, PARENT_AMOUNT_COLUMN)
+                for key in [key for key in (code, item_name) if key]:
+                    if group_amount is not None:
+                        lookup[(key, period)] = group_amount
+                        lookup[(f"{key}集团", period)] = group_amount
+                    if parent_amount is not None:
+                        lookup[(f"{key}本行", period)] = parent_amount
 
 
 def _is_previous_balance_row(row_text: str) -> bool:
@@ -896,13 +1097,22 @@ def _metric_dimension_suffix(value: str) -> str:
     return f"{entity}{period_alias}"
 
 
-def _get_amount(row: pd.Series, column: str) -> float | None:
+def _should_default_template_metric_to_zero(value: str) -> bool:
+    text = _normalize_text(value)
+    return bool(METRIC_CODE_PATTERN.search(text) and _metric_dimension_suffix(text))
+
+
+def _get_amount(row: pd.Series, column: str):
     if column not in row.index:
         return None
-    value = pd.to_numeric(row[column], errors="coerce")
-    if pd.isna(value):
+    raw_value = row[column]
+    if pd.isna(raw_value):
         return None
-    return float(value)
+    value = pd.to_numeric(raw_value, errors="coerce")
+    if pd.notna(value):
+        return float(value)
+    text = _normalize_text(raw_value)
+    return text or None
 
 
 def _replace_sheet_with_dataframe(workbook: Any, sheet_name: str, df: pd.DataFrame) -> None:

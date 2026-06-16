@@ -636,6 +636,56 @@ report_types:
     - 交通工具账面价值期末余额
     - 器具及设备账面价值期末余额
     - 固定资产账面价值期末余额
+  intangible_assets:
+    display_name: 五、11 无形资产
+    rule_keyword: 五、11 无形资产
+    pdf_parse_type: note_table
+    pdf_note_title_keyword: 五、11 无形资产
+    pdf_item_aliases:
+      无形资产期末账面价值:
+      - 无形资产
+      - 账面价值
+      无形资产期末成本:
+      - 成本
+      - 原值
+      无形资产期末累计摊销:
+      - 累计摊销
+      土地使用权期末账面价值:
+      - 土地使用权
+      软件使用权及其他期末账面价值:
+      - 软件使用权及其他
+      - 软件使用权
+    pdf_keywords:
+    - 无形资产
+    - 土地使用权
+    - 软件使用权
+    - 累计摊销
+    - 账面价值
+    output_prefix: 无形资产
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 无形资产本年增加成本
+    - 土地使用权本年增加成本
+    - 软件使用权及其他本年增加成本
+    - 无形资产本年减少成本
+    - 土地使用权本年减少成本
+    - 软件使用权及其他本年减少成本
+    - 无形资产期末成本
+    - 土地使用权期末成本
+    - 软件使用权及其他期末成本
+    - 无形资产本年计提累计摊销
+    - 土地使用权本年计提累计摊销
+    - 软件使用权及其他本年计提累计摊销
+    - 无形资产本年减少累计摊销
+    - 土地使用权本年减少累计摊销
+    - 软件使用权及其他本年减少累计摊销
+    - 无形资产期末累计摊销
+    - 土地使用权期末累计摊销
+    - 软件使用权及其他期末累计摊销
+    - 无形资产期末账面价值
+    - 土地使用权期末账面价值
+    - 软件使用权及其他期末账面价值
   other_assets:
     display_name: 五、13-1 其他资产
     rule_keyword: 五、13-1 其他资产
@@ -665,21 +715,329 @@ report_types:
     - 其他资产-其他
     - 其他资产减值准备
     - 其他资产
-  other_liabilities:
-    display_name: 其他负债
+  asset_impairment_provision:
+    display_name: 五、14 资产减值准备
+    rule_keyword: 五、14 资产减值准备
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 资产减值准备
+    - 本年计提
+    - 本年转销及其他
+    - 年末余额
+    output_prefix: 资产减值准备
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 本年计提-存放同业及其他金融机构款项减值准备
+    - 本年计提-拆出资金减值准备
+    - 本年计提-买入返售金融资产减值准备
+    - 本年计提-以摊余成本计量的发放贷款和垫款减值准备
+    - 本年计提-以公允价值计量且其变动计入其他综合收益的发放贷款和垫款减值准备
+    - 本年计提-债权投资减值准备
+    - 本年计提-其他债权投资减值准备
+    - 本年计提-固定资产减值准备
+    - 本年计提-其他资产减值准备
+    - 本年计提-资产减值准备
+    - 本年转销及其他-存放同业及其他金融机构款项减值准备
+    - 本年转销及其他-拆出资金减值准备
+    - 本年转销及其他-买入返售金融资产减值准备
+    - 本年转销及其他-以摊余成本计量的发放贷款和垫款减值准备
+    - 本年转销及其他-以公允价值计量且其变动计入其他综合收益的发放贷款和垫款减值准备
+    - 本年转销及其他-债权投资减值准备
+    - 本年转销及其他-其他债权投资减值准备
+    - 本年转销及其他-固定资产减值准备
+    - 本年转销及其他-其他资产减值准备
+    - 本年转销及其他-资产减值准备
+    - 年末余额-存放同业及其他金融机构款项减值准备
+    - 年末余额-拆出资金减值准备
+    - 年末余额-买入返售金融资产减值准备
+    - 年末余额-以摊余成本计量的发放贷款和垫款减值准备
+    - 年末余额-以公允价值计量且其变动计入其他综合收益的发放贷款和垫款减值准备
+    - 年末余额-债权投资减值准备
+    - 年末余额-其他债权投资减值准备
+    - 年末余额-固定资产减值准备
+    - 年末余额-其他资产减值准备
+    - 年末余额-资产减值准备
+  borrowed_funds:
+    display_name: 五、17 拆入资金
+    rule_keyword: 五、17 拆入资金
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 拆入资金
+    - 中国境内
+    - 银行
+    - 其他金融机构
+    output_prefix: 拆入资金
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 中国境内银行拆入资金
+    - 中国境内其他金融机构拆入资金
+    - 拆入资金
+  financial_liabilities_held_for_trading:
+    display_name: 五、18 交易性金融负债
+    rule_keyword: 五、18 交易性金融负债
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 交易性金融负债
+    - 合并的结构化主体第三方持有人份额
+    - 债券卖空
+    output_prefix: 交易性金融负债
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 合并的结构化主体第三方持有人的份额
+    - 债务卖空
+    - 交易性金融负债
+  repurchase_agreements:
+    display_name: 五、19 卖出回购金融资产款
+    rule_keyword: 五、19 卖出回购金融资产款
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 卖出回购金融资产款
+    - 卖出回购债券
+    - 卖出回购票据
+    output_prefix: 卖出回购金融资产款
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 卖出回购债券
+    - 卖出回购票据
+    - 卖出回购金融资产款
+  customer_deposits:
+    display_name: 五、20 吸收存款
+    rule_keyword: 五、20 吸收存款
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 吸收存款
+    - 活期存款
+    - 定期存款
+    - 保证金存款
+    output_prefix: 吸收存款
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 活期存款
+    - 公司活期存款
+    - 公司定期存款
+    - 定期存款
+    - 个人活期存款
+    - 个人定期存款
+    - 保证金存款
+    - 银行承兑汇票保证金存款
+    - 贷款保证金存款
+    - 信用证保证金存款
+    - 保函保证金存款
+    - 其他保证金存款
+    - 其他存款（含应解汇款）
+    - 吸收存款
+  employee_benefits_payable:
+    display_name: 五、21-1 应付职工薪酬
+    rule_keyword: 五、21-1 应付职工薪酬
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 应付职工薪酬
+    - 离职后福利
+    - 设定提存计划
+    - 设定受益计划
+    - 内部退养福利
+    output_prefix: 应付职工薪酬
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 薪酬
+    - 离职后福利 - 设定提存计划
+    - 离职后福利 - 设定受益计划
+    - 内部退养福利
+    - 应付职工薪酬
+  employee_benefits_payable_salary:
+    display_name: 五、21-2 应付职工薪酬-薪酬
+    rule_keyword: 五、21-2 应付职工薪酬-薪酬
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 应付职工薪酬
+    - 薪酬
+    - 工资、奖金、津贴和补贴
+    - 职工福利费
+    - 社会保险费
+    - 住房公积金
+    - 工会经费和职工教育经费
+    output_prefix: 应付职工薪酬-薪酬
+    period_type: 期间
+    validation_type: amount_compare
+    key_items:
+    - 工资、奖金、津贴和补贴本年发生额
+    - 职工福利费本年发生额
+    - 社会保险费- 基本医疗保险费本年发生额
+    - 社会保险费- 补充医疗保险费本年发生额
+    - 社会保险费- 工伤保险费本年发生额
+    - 社会保险费- 生育保险费本年发生额
+    - 住房公积金本年发生额
+    - 工会经费和职工教育经费本年发生额
+    - 应付职工薪酬-薪酬-本年发生额
+    - 工资、奖金、津贴和补贴本年支付额
+    - 职工福利费本年支付额
+    - 社会保险费- 基本医疗保险费本年支付额
+    - 社会保险费- 补充医疗保险费本年支付额
+    - 社会保险费- 工伤保险费本年支付额
+    - 社会保险费- 生育保险费本年支付额
+    - 住房公积金本年支付额
+    - 工会经费和职工教育经费本年支付额
+    - 应付职工薪酬-薪酬-本年支付额
+    - 工资、奖金、津贴和补贴年末余额
+    - 职工福利费年末余额
+    - 社会保险费- 基本医疗保险费年末余额
+    - 社会保险费- 补充医疗保险费年末余额
+    - 社会保险费- 工伤保险费年末余额
+    - 社会保险费- 生育保险费年末余额
+    - 住房公积金年末余额
+    - 工会经费和职工教育经费年末余额
+    - 应付职工薪酬-薪酬-年末余额
+  employee_benefits_payable_defined_contribution:
+    display_name: 五、21-3 应付职工薪酬-离职后福利 - 设定提存计划
+    rule_keyword: 五、21-3 应付职工薪酬-离职后福利 - 设定提存计划
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 应付职工薪酬
+    - 离职后福利
+    - 设定提存计划
+    - 基本养老保险费
+    - 失业保险费
+    - 年金计划
+    output_prefix: 应付职工薪酬-离职后福利-设定提存计划
+    period_type: 期间
+    validation_type: amount_compare
+    key_items:
+    - 基本养老保险费及失业保险费本年发生额
+    - 年金计划本年发生额
+    - 基本养老保险费及失业保险费本年支付额
+    - 年金计划本年支付额
+    - 基本养老保险费及失业保险费年末余额
+    - 年金计划年末余额
+    - 应付职工薪酬-设定提取计划-本年发生额
+    - 应付职工薪酬-设定提取计划-本年支付额
+    - 应付职工薪酬-设定提取计划-年末余额
+  employee_benefits_payable_defined_benefit:
+    display_name: 五、21-4 应付职工薪酬-离职后福利 - 设定受益计划
+    rule_keyword: 五、21-4 应付职工薪酬-离职后福利 - 设定受益计划
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 应付职工薪酬
+    - 离职后福利
+    - 设定受益计划
+    - 折现率
+    - 死亡率
+    - 当年服务成本
+    - 过去服务成本
+    - 净利息费用
+    output_prefix: 应付职工薪酬-离职后福利-设定受益计划
+    period_type: 期间
+    validation_type: amount_compare
+    key_items:
+    - 折现率 - 离职后福利
+    - 折现率 - 辞退福利
+    - 年金缴费年增长率
+    - 平均医疗费用年增长率
+    - 遗属生活费用的预期增长率
+    - 死亡率
+    - 于合并利润表中确认的当年服务成本
+    - 于合并利润表中确认的过去服务成本
+    - 于合并利润表中确认的净利息费用
+    - 于合并利润表中确认的计入费用的补充退休福利的组成部分
+    - 于合并利润表中确认的由于经验差异产生的精算利得
+    - 于合并利润表中确认的财务假设变动产生的精算损失
+    - 于合并利润表中确认的计入其他综合收益的补充退休福利的组成部分
+    - 于合并利润表中确认的补充退休福利费用
+    - 于合并资产负债表中确认的补充退休福利
+    - 于合并资产负债表中确认的利息费用
+    - 于合并资产负债表中确认的由于经验差异产生的精算利得
+    - 于合并资产负债表中确认的财务假设变动产生的精算损失
+    - 于合并资产负债表中确认的当年服务成本
+    - 于合并资产负债表中确认的过去服务成本
+    - 于合并资产负债表中确认的已支付的福利
+    - 于合并资产负债表中确认的补充退休福利负债年末余额
+  taxes_payable:
+    display_name: 五、22 应交税费
+    rule_keyword: 五、22 应交税费
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 应交税费
+    - 企业所得税
+    - 增值税
+    - 城市维护建设税
+    - 个人所得税
+    output_prefix: 应交税费
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 企业所得税
+    - 增值税
+    - 城市维护建设税
+    - 个人所得税
+    - 其他应交税费
+    - 应交税费
+  provisions_23_1:
+    display_name: 五、23-1 预计负债
+    rule_keyword: 五、23-1 预计负债
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 预计负债
+    - 信贷承诺预期信用损失准备
+    output_prefix: 预计负债
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 信贷承诺预期信用损失准备
+    - 其他预计负债
+    - 预计负债
+  bonds_payable_24_1:
+    display_name: 五、24-1 应付债券-按类别分析
+    rule_keyword: 五、24-1 应付债券-按类别分析
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 应付债券
+    - 同业存单
+    - 债券
+    output_prefix: 应付债券-按类别分析
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 同业存单
+    - 债券
+    - 应付债券
+  bonds_payable_24_2:
+    display_name: 五、24-2 应付债券-应付债券的增减变动
+    rule_keyword: 五、24-2 应付债券-应付债券的增减变动
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 应付债券
+    - 同业存单
+    - 债券
+    output_prefix: 应付债券-应付债券的增减变动
+    period_type: 混合
+    validation_type: amount_compare
+    key_items:
+    - 同业存单本年发行/增加
+    - 债券本年发行/增加
+    - 应付债券本年发行/增加
+    - 同业存单本年偿还/减少
+    - 债券本年偿还/减少
+    - 应付债券本年偿还/减少
+    - 同业存单利息及折溢价摊销
+    - 债券利息及折溢价摊销
+    - 应付债券利息及折溢价摊销
+    - 同业存单年末余额
+    - 债券年末余额
+    - 应付债券年末余额
+  other_liabilities_25_1:
+    display_name: 五、25-1 其他负债
     rule_keyword: 五、25-1 其他负债
     pdf_parse_type: note_table
-    pdf_item_aliases:
-      其他负债:
-      - 合计
     pdf_keywords:
     - 其他负债
     - 其他应付款
     - 应付股利
-    - 应付票据
     - 递延收益
-    - 长期借款
-    - 合同负债
     output_prefix: 其他负债
     period_type: 时点
     validation_type: amount_compare
@@ -691,6 +1049,128 @@ report_types:
     - 长期借款
     - 合同负债
     - 其他负债
+  other_liabilities_25_2:
+    display_name: 五、25-2 其他负债-其他应付款
+    rule_keyword: 五、25-2 其他负债-其他应付款
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 其他负债
+    - 其他应付款
+    - 预收履约款及保证金
+    - 提供代理服务产生的应付款项
+    - 预提费用
+    - 待清算及结算款项
+    output_prefix: 其他负债-其他应付款
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 预收履约款及保证金
+    - 提供代理服务产生的应付款项
+    - 预提费用
+    - 待清算及结算款项
+    - 其他应付款-其他
+    - 其他应付款
+  other_liabilities_25_3:
+    display_name: 五、25-3 其他负债-递延收益
+    rule_keyword: 五、25-3 其他负债-递延收益
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 其他负债
+    - 递延收益
+    - 融资租赁递延收益
+    - 政府补助递延收益
+    output_prefix: 其他负债-递延收益
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 融资租赁递延收益
+    - 政府补助递延收益
+    - 递延收益
+  share_capital_26:
+    display_name: 五、26 股本
+    rule_keyword: 五、26 股本
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 股本
+    output_prefix: 股本
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 股本
+  other_equity_instruments_27_1:
+    display_name: 五、27-1 其他权益工具
+    rule_keyword: 五、27-1 其他权益工具
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 其他权益工具
+    - 永续债
+    - 优先股
+    output_prefix: 其他权益工具
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 其他权益工具
+  other_equity_instruments_27_2:
+    display_name: 五、27-2 其他权益工具-年末发行在外的永续债情况表
+    rule_keyword: 五、27-2 其他权益工具-年末发行在外的永续债情况表
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 其他权益工具
+    - 年末发行在外的永续债
+    - 无固定期限资本债券
+    - 发行费用
+    - 账面价值
+    output_prefix: 其他权益工具-年末发行在外的永续债情况表
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 发行在外的金融工具-2021年无固定期限资本债券
+    - 发行在外的金融工具-2022年无固定期限资本债券
+    - 发行在外的金融工具-发行费用
+    - 发行在外的金融工具-账面价值
+  other_equity_instruments_27_4:
+    display_name: 五、27-4 其他权益工具-归属于权益工具持有者的相关信息
+    rule_keyword: 五、27-4 其他权益工具-归属于权益工具持有者的相关信息
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 其他权益工具
+    - 归属于权益工具持有者
+    - 归属于本行股东权益
+    - 归属于少数股东的权益
+    output_prefix: 其他权益工具-归属于权益工具持有者的相关信息
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 归属于本行股东权益
+    - 归属于本行普通股股东的权益
+    - 归属于本行其他权益工具持有者的权益
+    - 归属于少数股东的权益
+    - 归属于普通股少数股东的权益
+  capital_reserve_28:
+    display_name: 五、28 资本公积
+    rule_keyword: 五、28 资本公积
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 资本公积
+    - 股本溢价
+    output_prefix: 资本公积
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 股本溢价
+    - 资本公积
+  general_risk_reserve_31:
+    display_name: 五、31 一般风险准备
+    rule_keyword: 五、31 一般风险准备
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 一般风险准备
+    output_prefix: 一般风险准备
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 一般风险准备年末余额
+    - 一般风险准备
   long_term_equity_investment:
     display_name: 长期股权投资
     rule_keyword: 五、8-1 长期股权投资

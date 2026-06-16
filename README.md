@@ -67,6 +67,41 @@ streamlit run app.py
 http://localhost:8501
 ```
 
+## Windows 本地安装包
+
+生成便携安装包目录：
+
+```powershell
+.\packaging\build_windows_package.bat
+```
+
+生成 zip 压缩包：
+
+```powershell
+.\packaging\build_windows_package.bat -Zip
+```
+
+如需把当前 `data/upload` 和 `data/output` 中的运行数据也打进去：
+
+```powershell
+.\packaging\build_windows_package.bat -IncludeRuntimeData -Zip
+```
+
+安装包生成后位于：
+
+```text
+dist/financial_report_control_platform/
+```
+
+使用方式：
+
+1. 将 `dist/financial_report_control_platform` 复制到目标机器。
+2. 双击 `start_platform.bat`。
+3. 首次运行会创建 `.venv` 并安装依赖。
+4. 浏览器访问 `http://127.0.0.1:8501`。
+
+说明：当前是本地便携包，不是 MSI 安装向导。若目标环境要求“下一步/完成”式安装，可在该目录外层使用 Inno Setup 或 NSIS 制作安装器。
+
 ## 输出结果
 
 系统会将中间结果和最终报告写入：

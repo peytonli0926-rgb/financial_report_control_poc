@@ -389,7 +389,14 @@ def _format_percentage_columns(ws: Worksheet, df: pd.DataFrame) -> None:
             for column_index in (code_column, item_column, field_column)
             if column_index
         )
-        is_ratio_row = "B0492" in row_text or "B0493" in row_text or "比例" in row_text
+        is_ratio_row = (
+            "B0492" in row_text
+            or "B0493" in row_text
+            or any(f"B076{index}" in row_text for index in range(5))
+            or "\u6bd4\u4f8b" in row_text
+            or "\u6298\u73b0\u7387" in row_text
+            or "\u589e\u957f\u7387" in row_text
+        )
         for column_index, header in headers.items():
             if not (is_ratio_row or "比例" in header):
                 continue
@@ -401,12 +408,13 @@ def _format_percentage_columns(ws: Worksheet, df: pd.DataFrame) -> None:
 
 
 def _is_percentage_value_column(header: str) -> bool:
-    if "页码" in header or "原始行文本" in header:
+    if "\u9875\u7801" in header or "\u539f\u59cb\u884c\u6587\u672c" in header:
         return False
-    if "比例" in header:
+    if "\u6bd4\u4f8b" in header:
         return True
-    return header in {"生成值", "PDF披露值", "差异值", "PDF指标值"} or header.startswith("PDF集团") or header.startswith("PDF本行")
-
+    if any(token in header for token in ("\u672c\u671f", "\u4e0a\u671f", "\u672c\u5e74", "\u4e0a\u5e74", "\u751f\u6210\u91d1\u989d", "\u91d1\u989d")):
+        return True
+    return header in {"\u751f\u6210\u503c", "PDF\u62ab\u9732\u503c", "\u5dee\u5f02\u503c", "PDF\u6307\u6807\u503c"} or header.startswith("PDF\u96c6\u56e2") or header.startswith("PDF\u672c\u884c")
 
 def _auto_fit_columns(ws: Worksheet) -> None:
     for column_cells in ws.columns:

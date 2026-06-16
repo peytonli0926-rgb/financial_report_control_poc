@@ -52,23 +52,34 @@ def build_report_from_rules(
     try:
         source_df = _normalize_columns(rule_df)
         calculated_amounts = None
+        group_calculated_amounts = None
+        parent_calculated_amounts = None
         if upload_dir is not None:
             kwargs = dict(calculator_kwargs or {})
+            explicit_subject_balance_prefix = "subject_balance_prefix" in kwargs
             if report_period:
                 kwargs.setdefault("report_period", report_period)
-            if "subject_balance_prefix" not in kwargs:
+            if explicit_subject_balance_prefix:
                 inferred_prefix = _infer_subject_balance_prefix(
                     institution_name=institution_name,
                     institution_code=institution_code,
                     institution_scope=institution_scope,
                 )
-                if inferred_prefix:
+                if inferred_prefix and not kwargs.get("subject_balance_prefix"):
                     kwargs["subject_balance_prefix"] = inferred_prefix
             initial_values = dict(reusable_metrics or {})
             initial_values.update(kwargs.pop("initial_values", {}) or {})
             if initial_values:
                 kwargs["initial_values"] = initial_values
-            calculated_amounts = RuleCalculator(upload_dir, **kwargs).calculate(source_df)
+            if explicit_subject_balance_prefix and kwargs.get("subject_balance_prefix"):
+                calculated_amounts = RuleCalculator(upload_dir, **kwargs).calculate(source_df)
+            else:
+                group_kwargs = dict(kwargs)
+                parent_kwargs = dict(kwargs)
+                group_kwargs["subject_balance_prefix"] = "1-1-"
+                parent_kwargs["subject_balance_prefix"] = "1-12-"
+                group_calculated_amounts = RuleCalculator(upload_dir, **group_kwargs).calculate(source_df)
+                parent_calculated_amounts = RuleCalculator(upload_dir, **parent_kwargs).calculate(source_df)
 
         group_amount_column = _find_amount_column(source_df, GROUP_AMOUNT_CANDIDATES, "集团")
         parent_amount_column = _find_amount_column(source_df, PARENT_AMOUNT_CANDIDATES, "本行")
@@ -88,9 +99,44 @@ def build_report_from_rules(
             report_df[column] = source_df[column] if column in source_df.columns else pd.NA
         report_df["报表名称"] = report_config.get("display_name", report_df["报表名称"])
 
-        if calculated_amounts is not None and "计算金额" in calculated_amounts.columns:
-            group_amount = pd.to_numeric(calculated_amounts["计算金额"], errors="coerce")
+        if (
+            group_calculated_amounts is not None
+            and parent_calculated_amounts is not None
+            and "计算金额" in group_calculated_amounts.columns
+            and "计算金额" in parent_calculated_amounts.columns
+        ):
+            group_amount = _calculated_amount_series(group_calculated_amounts["计算金额"])
+            parent_amount = _calculated_amount_series(parent_calculated_amounts["计算金额"])
+            if _is_other_assets_report(report_config):
+                _apply_balance_sheet_a0017_pair_override(
+                    source_df,
+                    group_amount,
+                    parent_amount,
+                    upload_dir,
+                    report_period,
+                )
+            report_df["计算状态"] = _merge_calculation_status(
+                group_calculated_amounts,
+                parent_calculated_amounts,
+            )
+            report_df["计算说明"] = _merge_calculation_message(
+                group_calculated_amounts,
+                parent_calculated_amounts,
+            )
+        elif calculated_amounts is not None and "计算金额" in calculated_amounts.columns:
+            group_amount = _calculated_amount_series(calculated_amounts["计算金额"])
             parent_amount = group_amount.copy()
+            if _is_other_assets_report(report_config):
+                _apply_balance_sheet_a0017_single_institution_override(
+                    source_df,
+                    group_amount,
+                    parent_amount,
+                    upload_dir,
+                    report_period,
+                    institution_name=institution_name,
+                    institution_code=institution_code,
+                    institution_scope=institution_scope,
+                )
             report_df["计算状态"] = calculated_amounts["计算状态"]
             report_df["计算说明"] = calculated_amounts["计算说明"]
         else:
@@ -124,6 +170,125 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     normalized = df.copy()
     normalized.columns = [_normalize_text(column) for column in normalized.columns]
     return normalized
+
+
+def _merge_calculation_status(group_df: pd.DataFrame, parent_df: pd.DataFrame) -> pd.Series:
+    group_status = group_df.get("计算状态", pd.Series(["未计算"] * len(group_df), index=group_df.index)).astype(str)
+    parent_status = parent_df.get("计算状态", pd.Series(["未计算"] * len(parent_df), index=parent_df.index)).astype(str)
+    return [
+        "已计算" if group == "已计算" and parent == "已计算" else f"集团{group}/本行{parent}"
+        for group, parent in zip(group_status, parent_status)
+    ]
+
+
+def _merge_calculation_message(group_df: pd.DataFrame, parent_df: pd.DataFrame) -> pd.Series:
+    group_message = group_df.get("计算说明", pd.Series([""] * len(group_df), index=group_df.index)).astype(str)
+    parent_message = parent_df.get("计算说明", pd.Series([""] * len(parent_df), index=parent_df.index)).astype(str)
+    return [
+        group if group == parent else f"集团：{group}；本行：{parent}"
+        for group, parent in zip(group_message, parent_message)
+    ]
+
+
+def _is_other_assets_report(report_config: dict[str, Any]) -> bool:
+    report_name = _normalize_text(
+        report_config.get("output_prefix") or report_config.get("display_name") or ""
+    )
+    return "其他资产" in report_name
+
+
+def _apply_balance_sheet_a0017_pair_override(
+    source_df: pd.DataFrame,
+    group_amount: pd.Series,
+    parent_amount: pd.Series,
+    upload_dir: str | None,
+    report_period: str | None,
+) -> None:
+    if "指标编码" not in source_df.columns:
+        return
+    mask = source_df["指标编码"].astype(str).eq("A0017")
+    if not mask.any():
+        return
+    override = _load_balance_sheet_a0017_amount(upload_dir, report_period)
+    if override is None:
+        return
+    group_value, parent_value = override
+    group_amount.loc[mask] = group_value
+    parent_amount.loc[mask] = parent_value
+
+
+def _apply_balance_sheet_a0017_single_institution_override(
+    source_df: pd.DataFrame,
+    group_amount: pd.Series,
+    parent_amount: pd.Series,
+    upload_dir: str | None,
+    report_period: str | None,
+    institution_name: str | None = None,
+    institution_code: str | None = None,
+    institution_scope: str | None = None,
+) -> None:
+    if "指标编码" not in source_df.columns:
+        return
+    mask = source_df["指标编码"].astype(str).eq("A0017")
+    if not mask.any():
+        return
+    override = _load_balance_sheet_a0017_amount(upload_dir, report_period)
+    if override is None:
+        return
+    group_value, parent_value = override
+    prefix = _infer_subject_balance_prefix(
+        institution_name=institution_name,
+        institution_code=institution_code,
+        institution_scope=institution_scope,
+    )
+    selected_value = parent_value if prefix == "1-12-" else group_value
+    group_amount.loc[mask] = selected_value
+    parent_amount.loc[mask] = selected_value
+
+
+def _load_balance_sheet_a0017_amount(
+    upload_dir: str | None,
+    report_period: str | None,
+) -> tuple[float, float] | None:
+    from engine.rule_parser import find_report_rules
+
+    rule_file = _find_rule_file(upload_dir)
+    if rule_file is None:
+        return None
+    try:
+        balance_rules = find_report_rules(rule_file, "合并及母公司资产负债表")
+    except Exception:
+        return None
+    if balance_rules.empty or "指标编码" not in balance_rules.columns:
+        return None
+    row_df = balance_rules.loc[balance_rules["指标编码"].astype(str).eq("A0017")]
+    if row_df.empty:
+        return None
+    group_result = RuleCalculator(
+        upload_dir or "data/upload",
+        subject_balance_prefix="1-1-",
+        report_period=report_period,
+    ).calculate(row_df)
+    parent_result = RuleCalculator(
+        upload_dir or "data/upload",
+        subject_balance_prefix="1-12-",
+        report_period=report_period,
+    ).calculate(row_df)
+    group_value = pd.to_numeric(group_result.get("计算金额"), errors="coerce").iloc[0]
+    parent_value = pd.to_numeric(parent_result.get("计算金额"), errors="coerce").iloc[0]
+    if pd.isna(group_value) or pd.isna(parent_value):
+        return None
+    return float(group_value), float(parent_value)
+
+
+def _find_rule_file(upload_dir: str | None) -> str | None:
+    from pathlib import Path
+
+    base = Path(upload_dir or "data/upload")
+    if not base.exists():
+        return None
+    matches = sorted(base.glob("2-1-*.xlsx"), key=lambda path: path.stat().st_mtime, reverse=True)
+    return str(matches[0]) if matches else None
 
 
 def _normalize_text(value: Any) -> str:
@@ -197,6 +362,19 @@ def _clean_amount_value(value: Any) -> Any:
     return cleaned
 
 
+def _calculated_amount_series(series: pd.Series) -> pd.Series:
+    numeric_values = pd.to_numeric(series, errors="coerce")
+    result = numeric_values.astype(object)
+    for index, value in series.items():
+        if pd.notna(numeric_values.loc[index]):
+            continue
+        if pd.isna(value):
+            result.loc[index] = pd.NA
+        else:
+            result.loc[index] = value
+    return result
+
+
 def _convert_amount_unit(
     amount_series: pd.Series,
     source_df: pd.DataFrame,
@@ -204,10 +382,18 @@ def _convert_amount_unit(
 ) -> pd.Series:
     unit = _detect_amount_unit(source_df, amount_column)
     if unit == "yuan":
-        return amount_series / 1000
+        return _scale_numeric_amount_series(amount_series, 1 / 1000)
     if unit == "ten_thousand_yuan":
-        return amount_series * 10
+        return _scale_numeric_amount_series(amount_series, 10)
     return amount_series
+
+
+def _scale_numeric_amount_series(amount_series: pd.Series, factor: float) -> pd.Series:
+    numeric_values = pd.to_numeric(amount_series, errors="coerce")
+    result = amount_series.copy()
+    numeric_mask = numeric_values.notna()
+    result.loc[numeric_mask] = numeric_values.loc[numeric_mask] * factor
+    return result
 
 
 def _detect_amount_unit(source_df: pd.DataFrame, amount_column: str | None) -> str:
