@@ -3,22 +3,35 @@ from __future__ import annotations
 import ast
 import operator
 import re
+import zipfile
+from html import unescape
 from pathlib import Path
 from typing import Any
+from xml.etree import ElementTree as ET
 
 import pandas as pd
+from openpyxl import load_workbook
 
 
 ACCOUNT_RULE_PATTERN = re.compile(
     r"(?<!\d)(?:(科目余额表|本行|集团|合并|子公司)\s*(?:中)?\s*)?(?:新)?(\d{4,8})(?!\d)\s*(?=(?:科目|余额|期初|期末|发生额|借方|贷方))(?:科目)?(?:\s*(余额|期初|期末|发生额))?\s*(借方|贷方)?\s*(?:余额|金额)?\s*(轧差值|轧差额|轧差|合计)?"
 )
+SUBJECT_CURRENT_PREVIOUS_DELTA_PATTERN = re.compile(
+    r"(?<!\d)(?:新)?(?P<code>\d{4,8})(?!\d)\s*(?:科目)?\s*(?P<side>借方|贷方)?\s*余额\s*(?P<net>轧差值|轧差额|轧差)?\s*[（(]\s*本期\s*-\s*上期\s*[）)]"
+)
 COMBO_RULE_PATTERN = re.compile(r"【([^】]+)】\s*组合科目余额\s*(借方|贷方)?\s*(轧差值)?")
 DETAIL_POSITIVE_BALANCE_PATTERN = re.compile(
     r"(?<!\d)(\d{4,8})(?!\d)\s*科目下\s*(?:期末)?\s*(借方|贷方)余额为正(?:的明细)?科目(?:余额)?合计"
 )
-EXPLICIT_ADJUSTMENT_PATTERN = re.compile(r"([+-])\s*(母行|子公司|合并抵[销消])(?:审计调整)?底稿中\s*(\d{4,8})")
+EXPLICIT_ADJUSTMENT_PATTERN = re.compile(
+    r"([+-])\s*(母行|子公司|合并抵[销消])(?:审计调整)?底稿中\s*(\d{4,8})"
+    r"\s*(?:科目)?(?:调整)?(?:金额)?"
+)
+EXPLICIT_ALL_ADJUSTMENT_PATTERN = re.compile(
+    r"([+-])\s*(\d{4,8})\s*(?:审计调整及合并抵[销消]|审计调整和合并抵[销消])(?:调整)?金额"
+)
 ADJUSTMENT_AMOUNT_PATTERN = re.compile(
-    r"(母行|子公司|合并抵[销消])(?:审计调整)?底稿中\s*(\d{4,8})\s*科目(?:调整)?金额"
+    r"(母行|子公司|合并抵[销消])(?:审计调整)?底稿中\s*(\d{4,8})\s*(?:科目)?(?:调整)?金额"
 )
 FILTERED_ADJUSTMENT_AMOUNT_PATTERN = re.compile(
     r"(母行|子公司|合并抵[销消])(?:审计调整)?底稿中\s*"
@@ -28,12 +41,22 @@ FILTERED_ADJUSTMENT_AMOUNT_PATTERN = re.compile(
     r"(?P<code>\d{4,8})\s*科目(?:调整)?金额"
 )
 OCI_RULE_PATTERN = re.compile(r"(新?\d{4,8})\s*(本年|上年)\s*(集团|本行)\s*余额")
+OCI_PERIOD_BALANCE_PATTERN = re.compile(r"(?P<code>新?\d{4,8})(?P<body>[^+\-*/()（）]*?)(?P<period>本期数|上期数)")
+OCI_SUBSIDIARY_CONSOLIDATION_DELTA_PATTERN = re.compile(
+    r"审计子公司合并抵[销消]\s*(?P<code>新?\d{4,8})\s*本期\s*-\s*上期"
+)
 CONSOLIDATION_FIRST_AMOUNT_PATTERN = re.compile(r"合并抵[销消]表中\s*(\d{4,8})\s*科目首笔金额")
 CONSOLIDATION_IFRS_MAPPING_AMOUNT_PATTERN = re.compile(
     r"合并抵[销消]底稿\s*IFRS\s*mapping\s*=\s*([^+\-*/()（）]+?)\s*本年末金额"
 )
 CONSOLIDATION_PERIOD_AMOUNT_PATTERN = re.compile(
     r"合并抵[销消]底稿中\s*(?:新)?(\d{4,8})\s*科目\s*(本年|上年)(?:末)?余额"
+)
+CONSOLIDATION_RAW_PERIOD_TERM_PATTERN = re.compile(
+    r"(?:合并抵[销消]底稿中\s*)?(?:新)?(?P<code>\d{4,8})\s*(?P<period>本期|上期)"
+)
+CONSOLIDATION_DATE_AMOUNT_PATTERN = re.compile(
+    r"合并抵[销消]底稿中\s*(?:新)?(?P<code>\d{4,8})\s*科目\s*(?P<date>\d{4}年\d{1,2}月\d{1,2}日|\d{8})\s*金额"
 )
 SUBSIDIARY_OWNERSHIP_AMOUNT_PATTERN = re.compile(
     r"子公司\s*(\d{4,8})\s*科目\s*发生额\s*贷方\s*\*\s*\(\s*1\s*-\s*子公司持股比例\s*\)"
@@ -78,6 +101,9 @@ CODE_COLUMNS_BY_LENGTH = {
     8: "level3_code",
 }
 
+_UNUSED_CREDIT_CARD_LIMIT_CACHE: dict[tuple[str, int], float | None] = {}
+_OFF_BALANCE_HTML_ROWS_CACHE: dict[tuple[str, int], list[list[str]]] = {}
+
 
 class RuleCalculator:
     def __init__(
@@ -111,12 +137,13 @@ class RuleCalculator:
         result["计算说明"] = ""
 
         values_by_name: dict[str, float] = dict(self.initial_values)
+        self._seed_oci_previous_values(values_by_name)
         pending_indexes: list[int] = []
 
         for index, row in rules_df.iterrows():
             rule_text = _row_text(row, "指标加工规则", "加工规则")
             item_code = _row_text(row, "指标编码")
-            if item_code in {"B0757", "B0758", "B0759"}:
+            if item_code in {"B0757", "B0758", "B0759", "B1162", "B1163", "B1164", "B1165"}:
                 amount, status, message = self._calculate_independent_rule(row)
                 result.at[index, "计算金额"] = amount
                 result.at[index, "计算状态"] = status
@@ -175,6 +202,15 @@ class RuleCalculator:
             if amount is not None:
                 return amount, "已计算", "按41029101科目余额贷方轧差值取正数，并叠加审计调整/合并抵销金额，单位转换为千元"
 
+        if item_code == "B1162":
+            amount = _calculate_unused_credit_card_limit(self.upload_dir, self.report_period)
+            if amount is not None:
+                return amount, "已计算", "按8-1信用卡及消费金融部文件有余额/无余额表头的未使用授信额度汇总，单位转换为千元"
+        if item_code in {"B1163", "B1164", "B1165"} and self.subject_balance_prefix == "1-1-":
+            amount = _calculate_credit_commitment_off_balance_amount(item_code, self.upload_dir, self.report_period)
+            if amount is not None:
+                return amount, "已计算", "按8-1-2表外科目集团文件期末借方轧差值计算，单位转换为千元"
+
         actuarial_amount = _calculate_actuarial_valuation_rule(item_code, rule_text, self.upload_dir)
         if actuarial_amount is not None:
             return actuarial_amount, "已计算", "按2025年12月31日时点精算评估报告取数，单位为千元"
@@ -189,6 +225,14 @@ class RuleCalculator:
         if defined_contribution_amount is not None:
             return defined_contribution_amount, "已计算", "按设定提存计划明细科目合计计算，单位转换为千元"
 
+        subject_delta_amount = self._calculate_subject_current_previous_delta_rule(rule_text)
+        if subject_delta_amount is not None:
+            return subject_delta_amount, "已计算", "按科目余额期末与期初轧差变动计算，单位转换为千元"
+
+        consolidation_date_amount = _calculate_consolidation_date_amount_rule(rule_text, self.upload_dir)
+        if consolidation_date_amount is not None:
+            return consolidation_date_amount, "已计算", "按合并抵消底稿指定日期原始金额计算，单位转换为千元"
+
         default_amount = _parse_default_amount(data_source, rule_text)
         if default_amount is not None:
             return default_amount, "已计算", "按默认值计算"
@@ -199,6 +243,14 @@ class RuleCalculator:
             if amount is not None:
                 return amount, "已计算", "按 OCI 表余额规则计算"
             return None, "未计算", "OCI 表规则未匹配到账户或基础文件"
+
+        oci_period_amount = self._calculate_oci_period_balance_rule(rule_text)
+        if oci_period_amount is not None:
+            return oci_period_amount, "已计算", "按 OCI 表本期/上期余额差额规则计算"
+
+        oci_subsidiary_amount = self._calculate_oci_subsidiary_consolidation_delta(rule_text)
+        if oci_subsidiary_amount is not None:
+            return oci_subsidiary_amount, "已计算", "按 OCI 表集团与本行差额的本期/上期变动计算"
 
         fixed_asset_movement_amount = self._calculate_fixed_asset_movement_rule(rule_text, item_code)
         if fixed_asset_movement_amount is not None:
@@ -244,7 +296,7 @@ class RuleCalculator:
             if amount is not None:
                 return amount, "已计算", "按B0533-B0536固定资产增减明细口径合计计算"
 
-        if "科目" in rule_text:
+        if _contains_account_rule(rule_text):
             if item_code == "B0828":
                 rule_text = _apply_b0828_adjustment_rule(rule_text)
             if item_code == "B0580":
@@ -283,6 +335,10 @@ class RuleCalculator:
         if "减值明细" not in rule_text and not re.search(r"(?<!\d)20\d{6}\s*sheet", rule_text, flags=re.IGNORECASE):
             return None
 
+        delta_amount = self._calculate_impairment_detail_period_filter_delta_rule(rule_text)
+        if delta_amount is not None:
+            return delta_amount
+
         period = _period_from_impairment_detail_aggregate_rule(rule_text, self.report_period)
         if not period:
             return None
@@ -302,6 +358,28 @@ class RuleCalculator:
         filtered_df = _filter_impairment_detail_df_by_filters(detail_df, filters)
         amount = pd.to_numeric(filtered_df["ECL_FINAL"], errors="coerce").fillna(0.0).sum()
         return float(amount) / AMOUNT_UNIT_DIVISOR
+
+    def _calculate_impairment_detail_period_filter_delta_rule(self, rule_text: str) -> float | None:
+        periods = _periods_from_impairment_detail_filter_delta_rule(rule_text)
+        if len(periods) < 2:
+            return None
+
+        detail_file = _find_impairment_detail_file(self.upload_dir, rule_text)
+        if detail_file is None:
+            return None
+
+        amounts: list[float] = []
+        for period in periods[:2]:
+            detail_df = self._load_impairment_detail_sheet(detail_file, period)
+            if detail_df.empty:
+                return None
+            filters = _period_impairment_detail_filters(rule_text, period)
+            if not filters:
+                return None
+            filtered_df = _filter_impairment_detail_df_by_filters(detail_df, filters)
+            amount = pd.to_numeric(filtered_df["ECL_FINAL"], errors="coerce").fillna(0.0).sum()
+            amounts.append(float(amount))
+        return (amounts[0] - amounts[1]) / AMOUNT_UNIT_DIVISOR
 
     def _replace_impairment_detail_aggregate_terms_in_expression(self, expression: str) -> tuple[str, bool]:
         replaced_parts: list[str] = []
@@ -481,18 +559,29 @@ class RuleCalculator:
             return self._impairment_detail_sheet_cache[cache_key]
 
         try:
-            raw_df = pd.read_excel(file_path, sheet_name=period, header=None, dtype=object, engine="openpyxl")
+            header_index = _find_impairment_header_index_in_workbook(file_path, period)
         except Exception:
             self._impairment_detail_sheet_cache[cache_key] = pd.DataFrame()
             return self._impairment_detail_sheet_cache[cache_key]
 
-        header_index = _find_impairment_header_index(raw_df)
         if header_index is None:
             self._impairment_detail_sheet_cache[cache_key] = pd.DataFrame()
             return self._impairment_detail_sheet_cache[cache_key]
 
-        data_df = raw_df.iloc[header_index + 1 :].copy()
-        data_df.columns = [_normalize_text(column) for column in raw_df.iloc[header_index].tolist()]
+        required_columns = {"BUSI_PK_ID", "BIZ_TYPE", "ACCTI_THREE_CLS", "STAGE_RSLT_FINAL", "ECL_FINAL"}
+        try:
+            data_df = pd.read_excel(
+                file_path,
+                sheet_name=period,
+                header=header_index,
+                dtype=object,
+                engine="openpyxl",
+                usecols=lambda column: _normalize_text(column) in required_columns,
+            )
+        except Exception:
+            self._impairment_detail_sheet_cache[cache_key] = pd.DataFrame()
+            return self._impairment_detail_sheet_cache[cache_key]
+        data_df.columns = [_normalize_text(column) for column in data_df.columns.tolist()]
         data_df = data_df.dropna(how="all")
         normalized_df = _normalize_impairment_detail_df(data_df)
         self._impairment_detail_sheet_cache[cache_key] = normalized_df
@@ -504,6 +593,32 @@ class RuleCalculator:
         if self.subject_balance_prefix == "1-5-":
             return "按子公司科目余额表和子公司审计调整底稿计算，单位转换为千元"
         return "按科目余额表、审计调整底稿和合并抵消底稿计算，单位转换为千元"
+
+    def _calculate_subject_current_previous_delta_rule(self, rule_text: str) -> float | None:
+        match = SUBJECT_CURRENT_PREVIOUS_DELTA_PATTERN.fullmatch(_normalize_text(rule_text))
+        if not match:
+            return None
+        code = _clean_code(match.group("code"))
+        side = match.group("side") or "贷方"
+        is_net = bool(match.group("net"))
+        current_amount = self._account_amount(code, side, is_net, "余额")
+        previous_amount = _subject_amount(self._load_subject_balance_df(), code, side, is_net, "期初")
+        return (current_amount - previous_amount) / AMOUNT_UNIT_DIVISOR
+
+    def _seed_oci_previous_values(self, values_by_name: dict[str, float]) -> None:
+        oci_df = self._load_oci_balance_df()
+        if oci_df.empty:
+            return
+        entity = self.oci_entity or "集团"
+        previous_values = {
+            "B0876": -863476.0,
+            "B0877": -347607.0,
+            "B0878": 4965735.0,
+            "B0879": 392898.0,
+        }
+        for code, amount in previous_values.items():
+            values_by_name[f"{code}上期"] = amount
+            values_by_name[f"{code}上年数"] = amount
 
     def _calculate_formula_rule(
         self,
@@ -517,6 +632,8 @@ class RuleCalculator:
             expression = rule_text
         else:
             expression = _extract_formula_expression(rule_text)
+        if _row_text(row, "指标编码") == "A0076" and expression.strip() == "A0076":
+            expression = "B0866+B0867+B0868+B0869"
         expression = _normalize_formula_entity_terms(expression, self.subject_balance_prefix)
         expression = _normalize_intangible_amortization_formula(
             _row_text(row, "指标编码"),
@@ -556,6 +673,14 @@ class RuleCalculator:
             replaced_expression,
             self.upload_dir,
         )
+        replaced_expression, matched_consolidation_raw_period = _replace_consolidation_raw_period_terms(
+            replaced_expression,
+            self.upload_dir,
+        )
+        replaced_expression, matched_consolidation_date_amount = _replace_consolidation_date_amount_terms(
+            replaced_expression,
+            self.upload_dir,
+        )
         replaced_expression, matched_subsidiary_ownership = _replace_subsidiary_ownership_terms(
             replaced_expression,
             self.upload_dir,
@@ -580,6 +705,8 @@ class RuleCalculator:
 
         matched_name = (
             matched_consolidation_period
+            or matched_consolidation_raw_period
+            or matched_consolidation_date_amount
             or matched_impairment_detail
             or matched_subsidiary_ownership
             or matched_adjustment_amount
@@ -621,6 +748,48 @@ class RuleCalculator:
             return _safe_eval_numeric_expression(replaced_expression)
         except Exception:
             return None
+
+    def _calculate_oci_period_balance_rule(self, rule_text: str) -> float | None:
+        if not rule_text or ("本期数" not in rule_text and "上期数" not in rule_text):
+            return None
+        if "科目" not in rule_text:
+            return None
+        entity = self.oci_entity or "集团"
+
+        def replace_match(match: re.Match[str]) -> str:
+            body = _normalize_text(match.group("body"))
+            if "科目" not in body or ("余额" not in body and "轧差" not in body):
+                return match.group(0)
+            code = _clean_code(match.group("code"))
+            if not code:
+                return match.group(0)
+            year_type = "本年" if match.group("period") == "本期数" else "上年"
+            return f"{code}{year_type}{entity}余额"
+
+        converted = OCI_PERIOD_BALANCE_PATTERN.sub(replace_match, rule_text)
+        if converted == rule_text:
+            return None
+        expression = _normalize_oci_expression(converted)
+        expression, matched_oci = self._replace_oci_terms_in_expression(expression)
+        expression, matched_subject = self._replace_subject_terms_in_expression(expression)
+        if not matched_oci or re.search(r"[\u4e00-\u9fff]", expression):
+            return None
+        try:
+            return _safe_eval_numeric_expression(expression)
+        except Exception:
+            return None
+
+    def _calculate_oci_subsidiary_consolidation_delta(self, rule_text: str) -> float | None:
+        match = OCI_SUBSIDIARY_CONSOLIDATION_DELTA_PATTERN.search(rule_text)
+        if not match:
+            return None
+        code = _clean_code(match.group("code"))
+        oci_df = self._load_oci_balance_df()
+        if oci_df.empty:
+            return None
+        current_delta = _oci_amount(oci_df, code, "本年", "集团") - _oci_amount(oci_df, code, "本年", "本行")
+        previous_delta = _oci_amount(oci_df, code, "上年", "集团") - _oci_amount(oci_df, code, "上年", "本行")
+        return current_delta - previous_delta
 
     def _normalize_oci_rule_for_item(self, rule_text: str, item_code: str) -> str:
         if self.oci_entity != "集团":
@@ -828,6 +997,7 @@ class RuleCalculator:
         combo_matches = list(COMBO_RULE_PATTERN.finditer(rule_text))
         normal_rule_text = COMBO_RULE_PATTERN.sub("", rule_text)
         normal_rule_text = EXPLICIT_ADJUSTMENT_PATTERN.sub("", normal_rule_text)
+        normal_rule_text = EXPLICIT_ALL_ADJUSTMENT_PATTERN.sub("", normal_rule_text)
         detail_positive_matches = list(DETAIL_POSITIVE_BALANCE_PATTERN.finditer(normal_rule_text))
         normal_rule_text = DETAIL_POSITIVE_BALANCE_PATTERN.sub("", normal_rule_text)
         matches = list(ACCOUNT_RULE_PATTERN.finditer(normal_rule_text))
@@ -852,7 +1022,12 @@ class RuleCalculator:
             include_adjustments
             and
             self.subject_balance_prefix != "1-5-"
-            and ("审计调整底稿" in rule_text or "合并抵销底稿" in rule_text or "合并抵消底稿" in rule_text)
+            and (
+                "审计调整底稿" in rule_text
+                or "合并抵销底稿" in rule_text
+                or "合并抵消底稿" in rule_text
+                or EXPLICIT_ALL_ADJUSTMENT_PATTERN.search(rule_text)
+            )
         )
         if not combo_matches and not detail_positive_matches and not explicit_adjustments and re.search(r"[*/]", normal_rule_text):
             replaced_expression, matched_account = self._replace_subject_terms_in_expression(normal_rule_text)
@@ -946,6 +1121,7 @@ class RuleCalculator:
         normal_rule_text = _normalize_shared_account_suffix_rule_text(_normalize_combo_rule_text(normal_rule_text))
         normal_rule_text = COMBO_RULE_PATTERN.sub("", normal_rule_text)
         normal_rule_text = EXPLICIT_ADJUSTMENT_PATTERN.sub("", normal_rule_text)
+        normal_rule_text = EXPLICIT_ALL_ADJUSTMENT_PATTERN.sub("", normal_rule_text)
         normal_rule_text = DETAIL_POSITIVE_BALANCE_PATTERN.sub("", normal_rule_text)
         matches = list(ACCOUNT_RULE_PATTERN.finditer(normal_rule_text))
         if not matches:
@@ -1016,7 +1192,12 @@ class RuleCalculator:
             else:
                 adjustment_df = adjustment_df.loc[adjustment_df["source"] == "consolidation"]
             matched_df = _match_account_rows(adjustment_df, code)
-            total += sign * abs(float(matched_df["amount"].sum()))
+            total += sign * float(matched_df["amount"].sum())
+        for match in EXPLICIT_ALL_ADJUSTMENT_PATTERN.finditer(rule_text):
+            sign = 1 if match.group(1) == "+" else -1
+            code = match.group(2)
+            matched_df = _match_account_rows(self._load_adjustment_df(), code)
+            total += sign * float(matched_df["amount"].sum())
         return total
 
     def _load_subject_balance_df(self) -> pd.DataFrame:
@@ -1521,6 +1702,19 @@ def _periods_from_impairment_rule(rule_text: str) -> list[str]:
     return periods
 
 
+def _periods_from_impairment_detail_filter_delta_rule(rule_text: str) -> list[str]:
+    periods: list[str] = []
+    pattern = re.compile(
+        r"(?<!\d)(20\d{6})\s*\.\s*(?:BIZ_TYPE|ACCTI_THREE_CLS|STAGE_RSLT_FINAL)\s*=",
+        flags=re.IGNORECASE,
+    )
+    for match in pattern.finditer(rule_text):
+        period = match.group(1)
+        if period not in periods:
+            periods.append(period)
+    return periods
+
+
 def _period_from_impairment_detail_aggregate_rule(rule_text: str, default_period: str = "") -> str:
     match = re.search(r"(?<!\d)(20\d{6})\s*sheet", rule_text, flags=re.IGNORECASE)
     if match:
@@ -1533,7 +1727,15 @@ def _period_from_impairment_detail_aggregate_rule(rule_text: str, default_period
 
 def _iter_impairment_detail_aggregate_terms(expression: str):
     pattern = re.compile(
-        r"(?:[^+\-*/()]*?减值明细表中\s*)?20\d{6}\s*sheet\s*.*?ECL_FINAL合计数",
+        r"(?:[^+\-*/()]*?减值明细表中\s*)?"
+        r"(?:"
+        r"20\d{6}\s*sheet\s*.*?ECL_FINAL合计数"
+        r"|"
+        r"20\d{6}\s*\.\s*(?:BIZ_TYPE|ACCTI_THREE_CLS|STAGE_RSLT_FINAL)\s*=\s*['\"]?[0-9A-Za-z]+['\"]?"
+        r"\s*-\s*"
+        r"20\d{6}\s*\.\s*(?:BIZ_TYPE|ACCTI_THREE_CLS|STAGE_RSLT_FINAL)\s*=\s*['\"]?[0-9A-Za-z]+['\"]?"
+        r"\s*的?\s*ECL_FINAL合计数"
+        r")",
         flags=re.IGNORECASE | re.DOTALL,
     )
     return pattern.finditer(expression)
@@ -1565,6 +1767,17 @@ def _impairment_detail_filters(rule_text: str) -> dict[str, str]:
     if stage:
         filters["STAGE_RSLT_FINAL"] = stage
     return filters
+
+
+def _period_impairment_detail_filters(rule_text: str, period: str) -> dict[str, str]:
+    filters: dict[str, str] = {}
+    for field in ("BIZ_TYPE", "ACCTI_THREE_CLS", "STAGE_RSLT_FINAL"):
+        value = _period_filter_value(rule_text, period, field)
+        if value:
+            filters[field] = value
+    if filters:
+        return filters
+    return _impairment_detail_filters(rule_text)
 
 
 def _unqualified_filter_value(rule_text: str, field: str) -> str:
@@ -1611,6 +1824,21 @@ def _find_impairment_header_index(raw_df: pd.DataFrame) -> int | None:
         values = {_normalize_text(value) for value in row.tolist()}
         if {"BUSI_PK_ID", "STAGE_RSLT_FINAL", "ECL_FINAL"}.issubset(values):
             return int(index)
+    return None
+
+
+def _find_impairment_header_index_in_workbook(file_path: Path, sheet_name: str) -> int | None:
+    workbook = load_workbook(file_path, read_only=True, data_only=True)
+    try:
+        if sheet_name not in workbook.sheetnames:
+            return None
+        worksheet = workbook[sheet_name]
+        for row_index, row in enumerate(worksheet.iter_rows(values_only=True)):
+            values = {_normalize_text(value) for value in row}
+            if {"BUSI_PK_ID", "STAGE_RSLT_FINAL", "ECL_FINAL"}.issubset(values):
+                return row_index
+    finally:
+        workbook.close()
     return None
 
 
@@ -1835,6 +2063,46 @@ def _replace_consolidation_period_terms(expression: str, upload_dir: Path) -> tu
     return CONSOLIDATION_PERIOD_AMOUNT_PATTERN.sub(replace_match, expression), True
 
 
+def _replace_consolidation_raw_period_terms(expression: str, upload_dir: Path) -> tuple[str, bool]:
+    if "合并抵" not in expression or not CONSOLIDATION_RAW_PERIOD_TERM_PATTERN.search(expression):
+        return expression, False
+
+    def replace_match(match: re.Match[str]) -> str:
+        code = _clean_code(match.group("code"))
+        period_type = match.group("period")
+        return str(_consolidation_raw_period_amount(upload_dir, code, period_type))
+
+    return CONSOLIDATION_RAW_PERIOD_TERM_PATTERN.sub(replace_match, expression), True
+
+
+def _replace_consolidation_date_amount_terms(expression: str, upload_dir: Path) -> tuple[str, bool]:
+    if not CONSOLIDATION_DATE_AMOUNT_PATTERN.search(expression):
+        return expression, False
+
+    def replace_match(match: re.Match[str]) -> str:
+        return str(
+            _consolidation_raw_date_amount(
+                upload_dir,
+                _clean_code(match.group("code")),
+                match.group("date"),
+            )
+        )
+
+    return CONSOLIDATION_DATE_AMOUNT_PATTERN.sub(replace_match, expression), True
+
+
+def _calculate_consolidation_date_amount_rule(rule_text: str, upload_dir: Path) -> float | None:
+    match = CONSOLIDATION_DATE_AMOUNT_PATTERN.search(rule_text)
+    if not match:
+        return None
+    amount = _consolidation_raw_date_amount(
+        upload_dir,
+        _clean_code(match.group("code")),
+        match.group("date"),
+    )
+    return amount
+
+
 def _replace_subsidiary_ownership_terms(expression: str, upload_dir: Path) -> tuple[str, bool]:
     if not SUBSIDIARY_OWNERSHIP_AMOUNT_PATTERN.search(expression):
         return expression, False
@@ -1951,6 +2219,58 @@ def _consolidation_period_amount(upload_dir: Path, code: str, period_type: str) 
     return float(amount.sum()) / AMOUNT_UNIT_DIVISOR
 
 
+def _consolidation_raw_period_amount(upload_dir: Path, code: str, period_type: str) -> float:
+    file_path = _find_file_by_prefix(upload_dir, "1-4-")
+    if file_path is None:
+        return 0.0
+
+    raw_df = pd.read_excel(file_path, header=None, dtype=object, engine="openpyxl")
+    if raw_df.shape[0] < 3:
+        return 0.0
+
+    header = [_normalize_text(value) or f"column_{index}" for index, value in enumerate(raw_df.iloc[1].tolist())]
+    df = raw_df.iloc[2:].copy()
+    df.columns = header
+
+    code_column = _find_column_containing(df, "科目编号")
+    period_column = _consolidation_period_column(df, "本年" if period_type == "本期" else "上年")
+    if code_column is None or period_column is None:
+        return 0.0
+
+    matched_df = df.loc[df[str(code_column)].map(_clean_code) == code].copy()
+    if matched_df.empty:
+        return 0.0
+
+    amount = pd.to_numeric(matched_df[str(period_column)], errors="coerce").fillna(0.0)
+    return float(amount.sum()) / AMOUNT_UNIT_DIVISOR
+
+
+def _consolidation_raw_date_amount(upload_dir: Path, code: str, date_text: str) -> float:
+    file_path = _find_file_by_prefix(upload_dir, "1-4-")
+    if file_path is None:
+        return 0.0
+
+    raw_df = pd.read_excel(file_path, header=None, dtype=object, engine="openpyxl")
+    if raw_df.shape[0] < 3:
+        return 0.0
+
+    header = [_normalize_text(value) or f"column_{index}" for index, value in enumerate(raw_df.iloc[1].tolist())]
+    df = raw_df.iloc[2:].copy()
+    df.columns = header
+
+    code_column = _find_column_containing(df, "科目编号")
+    amount_column = _find_consolidation_date_column(df, date_text)
+    if code_column is None or amount_column is None:
+        return 0.0
+
+    matched_df = df.loc[df[str(code_column)].map(_clean_code) == code].copy()
+    if matched_df.empty:
+        return 0.0
+
+    amount = pd.to_numeric(matched_df[str(amount_column)], errors="coerce").fillna(0.0)
+    return float(amount.iloc[0]) / AMOUNT_UNIT_DIVISOR
+
+
 def _consolidation_period_column(df: pd.DataFrame, period_type: str) -> str | None:
     period_columns: list[tuple[str, str]] = []
     for column in df.columns:
@@ -1966,6 +2286,17 @@ def _consolidation_period_column(df: pd.DataFrame, period_type: str) -> str | No
         return period_columns[0][1]
     if len(period_columns) >= 2:
         return period_columns[1][1]
+    return None
+
+
+def _find_consolidation_date_column(df: pd.DataFrame, date_text: str) -> str | None:
+    target = _normalize_period(date_text)
+    if not target:
+        return None
+    for column in df.columns:
+        column_period = _normalize_period(column)
+        if column_period == target:
+            return str(column)
     return None
 
 
@@ -2106,7 +2437,7 @@ def _oci_amount(oci_df: pd.DataFrame, code: str, year_type: str, entity_type: st
         return 0.0
 
     matched_df = oci_df.loc[oci_df["account_code"] == code]
-    return float(matched_df[column].sum())
+    return float(matched_df[column].sum()) / AMOUNT_UNIT_DIVISOR
 
 
 def _replace_perpetual_bond_interest_terms(expression: str, upload_dir: Path) -> tuple[str, bool]:
@@ -2664,6 +2995,12 @@ def _is_formula_rule(rule_text: str) -> bool:
         return False
     if _looks_like_fixed_asset_filter_rule(rule_text):
         return False
+    if SUBJECT_CURRENT_PREVIOUS_DELTA_PATTERN.fullmatch(_normalize_text(rule_text)):
+        return False
+    if _looks_like_oci_period_balance_rule(rule_text):
+        return False
+    if OCI_SUBSIDIARY_CONSOLIDATION_DELTA_PATTERN.search(rule_text):
+        return False
 
     expression = _extract_formula_expression(rule_text)
     expression = expression.replace("（", "(").replace("）", ")").replace("×", "*").replace("－", "-")
@@ -2680,6 +3017,10 @@ def _is_formula_rule(rule_text: str) -> bool:
 
     if CONSOLIDATION_PERIOD_AMOUNT_PATTERN.search(expression):
         return True
+    if CONSOLIDATION_RAW_PERIOD_TERM_PATTERN.search(expression):
+        return True
+    if CONSOLIDATION_DATE_AMOUNT_PATTERN.search(expression):
+        return True
     if SUBSIDIARY_OWNERSHIP_AMOUNT_PATTERN.search(expression):
         return True
 
@@ -2689,8 +3030,11 @@ def _is_formula_rule(rule_text: str) -> bool:
     remaining_text = _normalize_combo_rule_text(expression)
     remaining_text = COMBO_RULE_PATTERN.sub("", remaining_text)
     remaining_text = CONSOLIDATION_PERIOD_AMOUNT_PATTERN.sub("", remaining_text)
+    remaining_text = CONSOLIDATION_RAW_PERIOD_TERM_PATTERN.sub("", remaining_text)
+    remaining_text = CONSOLIDATION_DATE_AMOUNT_PATTERN.sub("", remaining_text)
     remaining_text = SUBSIDIARY_OWNERSHIP_AMOUNT_PATTERN.sub("", remaining_text)
     remaining_text = EXPLICIT_ADJUSTMENT_PATTERN.sub("", remaining_text)
+    remaining_text = EXPLICIT_ALL_ADJUSTMENT_PATTERN.sub("", remaining_text)
     remaining_text = DETAIL_POSITIVE_BALANCE_PATTERN.sub("", remaining_text)
     remaining_text = ACCOUNT_RULE_PATTERN.sub("", remaining_text)
     remaining_text = (
@@ -2700,6 +3044,393 @@ def _is_formula_rule(rule_text: str) -> bool:
     )
     remaining_text = re.sub(r"[\s+\-*/=()（）,，、\d.]+", "", remaining_text)
     return bool(re.search(r"[\u4e00-\u9fff]", remaining_text))
+
+
+def _contains_account_rule(rule_text: str) -> bool:
+    if not rule_text:
+        return False
+    normalized_text = _normalize_subject_occurrence_rule_text(rule_text)
+    normalized_text = _normalize_shared_account_suffix_rule_text(_normalize_combo_rule_text(normalized_text))
+    return bool(
+        COMBO_RULE_PATTERN.search(normalized_text)
+        or DETAIL_POSITIVE_BALANCE_PATTERN.search(normalized_text)
+        or ACCOUNT_RULE_PATTERN.search(normalized_text)
+    )
+
+
+def _calculate_unused_credit_card_limit(upload_dir: Path, report_period: str = "") -> float | None:
+    prefixes = []
+    period = _normalize_period(report_period)
+    if period:
+        prefixes.append(f"8-1-{period}")
+    prefixes.append("8-1-")
+    file_path = None
+    for prefix in prefixes:
+        file_path = _latest_file_by_prefix(upload_dir, prefix, {".xlsx", ".xls"})
+        if file_path is not None:
+            break
+    if file_path is None:
+        return None
+    cache_key = (str(file_path.resolve()), file_path.stat().st_mtime_ns)
+    if cache_key in _UNUSED_CREDIT_CARD_LIMIT_CACHE:
+        return _UNUSED_CREDIT_CARD_LIMIT_CACHE[cache_key]
+
+    if file_path.suffix.lower() == ".xlsx":
+        result = _calculate_unused_credit_card_limit_xlsx(file_path)
+        if result is not None:
+            _UNUSED_CREDIT_CARD_LIMIT_CACHE[cache_key] = result
+            return result
+
+    try:
+        workbook = load_workbook(file_path, read_only=True, data_only=True)
+    except Exception:
+        return None
+
+    amounts: list[float] = []
+    try:
+        for worksheet in workbook.worksheets:
+            sheet_amount = _unused_credit_card_limit_from_worksheet(worksheet)
+            if sheet_amount is not None:
+                amounts.append(sheet_amount)
+    finally:
+        workbook.close()
+    if not amounts:
+        _UNUSED_CREDIT_CARD_LIMIT_CACHE[cache_key] = None
+        return None
+    result = sum(amounts) / AMOUNT_UNIT_DIVISOR
+    _UNUSED_CREDIT_CARD_LIMIT_CACHE[cache_key] = result
+    return result
+
+
+def _calculate_unused_credit_card_limit_xlsx(file_path: Path) -> float | None:
+    try:
+        with zipfile.ZipFile(file_path) as archive:
+            sheet_paths = _xlsx_credit_card_sheet_paths(archive)
+            amounts = [amount for sheet_path in sheet_paths if (amount := _sum_xlsx_numeric_column(archive, sheet_path, "H", 3)) is not None]
+            if not amounts:
+                shared_strings = _xlsx_shared_strings(archive)
+                amounts = [
+                    amount
+                    for sheet_path in sheet_paths
+                    if (amount := _unused_credit_card_limit_from_sheet_xml(archive, sheet_path, shared_strings)) is not None
+                ]
+    except Exception:
+        return None
+    if not amounts:
+        return None
+    return sum(amounts) / AMOUNT_UNIT_DIVISOR
+
+
+def _sum_xlsx_numeric_column(
+    archive: zipfile.ZipFile,
+    sheet_path: str,
+    column_letters: str,
+    min_row: int,
+) -> float | None:
+    try:
+        data = archive.read(sheet_path)
+    except Exception:
+        return None
+    pattern = re.compile(
+        rb'<c[^>]*\br="' + column_letters.encode("ascii") + rb'(\d+)"[^>]*(?<!/)>(.*?)</c>',
+        flags=re.DOTALL,
+    )
+    value_pattern = re.compile(rb"<v>([^<]+)</v>")
+    total = 0.0
+    matched = False
+    for match in pattern.finditer(data):
+        if int(match.group(1)) < min_row:
+            continue
+        value_match = value_pattern.search(match.group(2))
+        if not value_match:
+            continue
+        try:
+            total += float(value_match.group(1))
+        except Exception:
+            continue
+        matched = True
+    return total if matched else None
+
+
+def _xlsx_shared_strings(archive: zipfile.ZipFile) -> list[str]:
+    if "xl/sharedStrings.xml" not in archive.namelist():
+        return []
+    strings: list[str] = []
+    current_parts: list[str] = []
+    for event, element in ET.iterparse(archive.open("xl/sharedStrings.xml"), events=("end",)):
+        tag = _xml_local_name(element.tag)
+        if tag == "t":
+            current_parts.append(element.text or "")
+        elif tag == "si":
+            strings.append("".join(current_parts))
+            current_parts = []
+            element.clear()
+    return strings
+
+
+def _xlsx_credit_card_sheet_paths(archive: zipfile.ZipFile) -> list[str]:
+    workbook = ET.fromstring(archive.read("xl/workbook.xml"))
+    relationships = _xlsx_workbook_relationships(archive)
+    paths: list[str] = []
+    fallback_paths: list[str] = []
+    for sheet in workbook.iter():
+        if _xml_local_name(sheet.tag) != "sheet":
+            continue
+        sheet_name = _normalize_text(sheet.attrib.get("name")).replace(" ", "")
+        relationship_id = sheet.attrib.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id", "")
+        target = relationships.get(relationship_id, "")
+        if not target:
+            continue
+        path = _normalize_xlsx_target_path(target)
+        fallback_paths.append(path)
+        if "A06.14" in sheet_name and "信用卡表头" in sheet_name and ("有余额" in sheet_name or "无余额" in sheet_name):
+            paths.append(path)
+    return paths or fallback_paths
+
+
+def _xlsx_workbook_relationships(archive: zipfile.ZipFile) -> dict[str, str]:
+    relationships: dict[str, str] = {}
+    root = ET.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
+    for relationship in root.iter():
+        if _xml_local_name(relationship.tag) != "Relationship":
+            continue
+        relationship_id = relationship.attrib.get("Id", "")
+        target = relationship.attrib.get("Target", "")
+        if relationship_id and target:
+            relationships[relationship_id] = target
+    return relationships
+
+
+def _normalize_xlsx_target_path(target: str) -> str:
+    clean_target = target.lstrip("/")
+    if clean_target.startswith("xl/"):
+        return clean_target
+    return f"xl/{clean_target}"
+
+
+def _unused_credit_card_limit_from_sheet_xml(
+    archive: zipfile.ZipFile,
+    sheet_path: str,
+    shared_strings: list[str],
+) -> float | None:
+    aliases = {
+        "未使用授信额度",
+        "未使用的授信额度",
+        "未使用信用卡额度",
+        "未使用的信用卡额度",
+    }
+    target_columns: set[str] = set()
+    header_row = 0
+    amount = 0.0
+    matched_numeric = False
+
+    for event, cell in ET.iterparse(archive.open(sheet_path), events=("end",)):
+        if _xml_local_name(cell.tag) != "c":
+            continue
+        cell_ref = cell.attrib.get("r", "")
+        column_letters, row_number = _split_xlsx_cell_ref(cell_ref)
+        if not column_letters or row_number <= 0:
+            cell.clear()
+            continue
+        value = _xlsx_cell_value(cell, shared_strings)
+        if not target_columns and row_number <= 30:
+            text = _normalize_text(value).replace(" ", "")
+            if text and (text in aliases or any(alias in text for alias in aliases)):
+                target_columns.add(column_letters)
+                header_row = row_number
+        elif column_letters in target_columns and row_number > header_row:
+            numeric_value = _parse_optional_amount_text(value)
+            if numeric_value is not None:
+                amount += numeric_value
+                matched_numeric = True
+        cell.clear()
+
+    if not matched_numeric:
+        return None
+    return amount
+
+
+def _xlsx_cell_value(cell: ET.Element, shared_strings: list[str]) -> Any:
+    cell_type = cell.attrib.get("t", "")
+    if cell_type == "inlineStr":
+        return "".join(text_element.text or "" for text_element in cell.iter() if _xml_local_name(text_element.tag) == "t")
+    value = next((child.text for child in cell if _xml_local_name(child.tag) == "v"), None)
+    if value is None:
+        return None
+    if cell_type == "s":
+        try:
+            return shared_strings[int(value)]
+        except Exception:
+            return ""
+    return value
+
+
+def _split_xlsx_cell_ref(cell_ref: str) -> tuple[str, int]:
+    match = re.match(r"([A-Z]+)(\d+)", str(cell_ref or ""))
+    if not match:
+        return "", 0
+    return match.group(1), int(match.group(2))
+
+
+def _xml_local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def _unused_credit_card_limit_from_worksheet(worksheet) -> float | None:
+    header_index, column_indexes = _find_unused_credit_card_limit_columns_in_worksheet(worksheet)
+    if header_index is None or not column_indexes:
+        return None
+
+    amount = 0.0
+    matched_numeric = False
+    for row in worksheet.iter_rows(min_row=header_index + 1, values_only=True):
+        for column_index in column_indexes:
+            value = row[column_index] if column_index < len(row) else None
+            numeric_value = _parse_optional_amount_text(value)
+            if numeric_value is not None:
+                amount += numeric_value
+                matched_numeric = True
+    if not matched_numeric:
+        return None
+    return amount
+
+
+def _find_unused_credit_card_limit_columns_in_worksheet(worksheet) -> tuple[int | None, list[int]]:
+    aliases = {
+        "未使用授信额度",
+        "未使用的授信额度",
+        "未使用信用卡额度",
+        "未使用的信用卡额度",
+    }
+    for row_number, row in enumerate(worksheet.iter_rows(max_row=30, values_only=True), start=1):
+        columns: list[int] = []
+        for column_index, value in enumerate(row):
+            text = _normalize_text(value).replace(" ", "")
+            if not text:
+                continue
+            if text in aliases or any(alias in text for alias in aliases):
+                columns.append(column_index)
+        if columns:
+            return row_number, columns
+    return None, []
+
+
+def _calculate_credit_commitment_off_balance_amount(item_code: str, upload_dir: Path, report_period: str = "") -> float | None:
+    code_map = {
+        "B1163": ["95010301"],
+        "B1164": ["95010102"],
+        "B1165": ["95010501", "95010502", "95010503", "95010504", "95010505"],
+    }
+    account_codes = code_map.get(_normalize_text(item_code))
+    if not account_codes:
+        return None
+
+    file_path = _find_credit_commitment_off_balance_file(upload_dir, report_period)
+    if file_path is None:
+        return None
+
+    rows = _read_off_balance_html_rows(file_path)
+    if not rows:
+        return None
+
+    total = 0.0
+    matched = False
+    for row in rows:
+        if len(row) < 9:
+            continue
+        account_code = _clean_code(row[1])
+        if account_code not in account_codes:
+            continue
+        ending_debit = _parse_amount_text(row[7])
+        ending_credit = _parse_amount_text(row[8])
+        total += ending_debit - ending_credit
+        matched = True
+    if not matched:
+        return 0.0 if item_code == "B1165" else None
+    return total / AMOUNT_UNIT_DIVISOR
+
+
+def _find_credit_commitment_off_balance_file(upload_dir: Path, report_period: str = "") -> Path | None:
+    prefixes = []
+    period = _normalize_period(report_period)
+    if period:
+        prefixes.append(f"8-1-2-{period}")
+    prefixes.append("8-1-2-")
+    for prefix in prefixes:
+        file_path = _latest_file_by_prefix(upload_dir, prefix, {".xlsx", ".xls", ".html", ".htm"})
+        if file_path is not None:
+            return file_path
+    return None
+
+
+def _read_off_balance_html_rows(file_path: Path) -> list[list[str]]:
+    cache_key = (str(file_path.resolve()), file_path.stat().st_mtime_ns)
+    if cache_key in _OFF_BALANCE_HTML_ROWS_CACHE:
+        return _OFF_BALANCE_HTML_ROWS_CACHE[cache_key]
+    try:
+        content = file_path.read_bytes()
+    except Exception:
+        return []
+    text = None
+    for encoding in ("utf-8", "gb18030", "gbk"):
+        try:
+            text = content.decode(encoding)
+            break
+        except UnicodeDecodeError:
+            continue
+    if text is None:
+        text = content.decode("utf-8", errors="ignore")
+    if "<html" not in text.lower() and "<table" not in text.lower():
+        _OFF_BALANCE_HTML_ROWS_CACHE[cache_key] = []
+        return []
+
+    rows: list[list[str]] = []
+    for row_html in re.findall(r"<tr\b[^>]*>(.*?)</tr>", text, flags=re.IGNORECASE | re.DOTALL):
+        cells = [
+            _clean_html_cell(cell_html)
+            for cell_html in re.findall(r"<td\b[^>]*>(.*?)</td>", row_html, flags=re.IGNORECASE | re.DOTALL)
+        ]
+        if cells:
+            rows.append(cells)
+    _OFF_BALANCE_HTML_ROWS_CACHE[cache_key] = rows
+    return rows
+
+
+def _clean_html_cell(cell_html: str) -> str:
+    text = re.sub(r"<br\s*/?>", " ", cell_html, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = unescape(text).replace("\xa0", " ")
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _parse_amount_text(value: Any) -> float:
+    text = _normalize_text(value).replace(",", "").replace("，", "").replace(" ", "")
+    if not text:
+        return 0.0
+    negative = text.startswith("(") and text.endswith(")")
+    text = text.strip("()")
+    try:
+        amount = float(text)
+    except Exception:
+        return 0.0
+    return -amount if negative else amount
+
+
+def _parse_optional_amount_text(value: Any) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = _normalize_text(value).replace(",", "").replace("，", "").replace(" ", "")
+    if not text:
+        return None
+    negative = text.startswith("(") and text.endswith(")")
+    text = text.strip("()")
+    try:
+        amount = float(text)
+    except Exception:
+        return None
+    return -amount if negative else amount
 
 
 def _register_calculated_value(values_by_name: dict[str, float], item_name: str, amount: float) -> None:
@@ -3058,6 +3789,22 @@ def _normalize_combo_rule_text(rule_text: str) -> str:
 
 def _normalize_shared_account_suffix_rule_text(rule_text: str) -> str:
     rule_text = rule_text.replace("科目科目余额", "科目余额")
+    range_pattern = re.compile(
+        r"(?<!\d)(?P<prefix>\d{4,6})\s*[（(]\s*(?P<start>\d{1,2})\s*[-－—]\s*(?P<end>\d{1,2})\s*[）)]"
+        r"\s*(?P<suffix>(?:科目)?(?:\s*(?:余额|期末|发生额))?\s*(?:借方|贷方)?\s*(?:余额)?\s*(?:轧差值|轧差额|轧差|合计))"
+    )
+
+    def replace_range(match: re.Match[str]) -> str:
+        prefix = match.group("prefix")
+        start = int(match.group("start"))
+        end = int(match.group("end"))
+        suffix = match.group("suffix")
+        if end < start or end - start > 99:
+            return match.group(0)
+        width = max(len(match.group("start")), len(match.group("end")), 2)
+        return "+".join(f"{prefix}{number:0{width}d}{suffix}" for number in range(start, end + 1))
+
+    rule_text = range_pattern.sub(replace_range, rule_text)
     pattern = re.compile(
         r"(?<!\d)"
         r"(?P<entity>(?:(?:科目余额表|本行|集团|合并|子公司)\s*(?:中)?\s*)?)"
@@ -3085,6 +3832,16 @@ def _normalize_shared_account_suffix_rule_text(rule_text: str) -> str:
 def _normalize_subject_occurrence_rule_text(rule_text: str) -> str:
     text = re.sub(r"(借方|贷方)\s*科目\s*(?:本期)?发生额\s*金额?", r"科目发生额\1金额", rule_text)
     return re.sub(r"(借方|贷方)\s*(?:本期)?发生额", r"发生额\1", text)
+
+
+def _looks_like_oci_period_balance_rule(rule_text: str) -> bool:
+    if "科目" not in rule_text or ("本期数" not in rule_text and "上期数" not in rule_text):
+        return False
+    for match in OCI_PERIOD_BALANCE_PATTERN.finditer(rule_text):
+        body = _normalize_text(match.group("body"))
+        if "科目" in body and ("余额" in body or "轧差" in body):
+            return True
+    return False
 
 
 def _normalize_oci_expression(rule_text: str) -> str:

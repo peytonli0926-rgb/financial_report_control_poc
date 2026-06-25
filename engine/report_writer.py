@@ -134,7 +134,7 @@ def write_report_generation_excel(
         raise ValueError("output_path 必须是 .xlsx 或 .xlsm 文件路径。")
 
     display_name = str(report_config.get("display_name", "报表"))
-    result_sheet_name = f"{display_name}生成结果"
+    result_sheet_name = _safe_sheet_name(f"{display_name}生成结果")
 
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -167,6 +167,14 @@ def write_pdf_validation_excel(
         report_name=str(report_config.get("display_name", "报表")),
         tolerance=tolerance,
     )
+
+
+def _safe_sheet_name(name: str) -> str:
+    """Return an Excel-compatible worksheet title."""
+    clean_name = str(name or "Sheet").translate(str.maketrans({char: " " for char in r'[]:*?/\\'})).strip()
+    if not clean_name:
+        clean_name = "Sheet"
+    return clean_name[:31]
 
 
 def write_income_statement_report(

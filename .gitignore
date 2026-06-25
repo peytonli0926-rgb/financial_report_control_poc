@@ -35,6 +35,7 @@ code_objects.txt
 # Local financial/input/generated data; keep code portable and avoid publishing sensitive files
 /data/upload/
 /data/output/
+/data/cache/
 /input/
 /data.zip
 /dist/

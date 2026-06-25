@@ -26,6 +26,11 @@ BASE_COLUMNS = [
     "加工规则",
 ]
 
+BASE_COLUMN_ALIASES = {
+    "数据来源": ["指标数据来源"],
+    "加工规则": ["指标加工规则"],
+}
+
 GROUP_AMOUNT_CANDIDATES = ["集团金额", "合并金额", "生成金额-集团", "金额-集团"]
 PARENT_AMOUNT_CANDIDATES = ["本行金额", "母公司金额", "母行金额", "生成金额-本行", "金额-本行"]
 
@@ -72,12 +77,18 @@ def build_report_from_rules(
             if initial_values:
                 kwargs["initial_values"] = initial_values
             if explicit_subject_balance_prefix and kwargs.get("subject_balance_prefix"):
+                if kwargs.get("subject_balance_prefix") == "1-12-":
+                    kwargs.setdefault("oci_entity", "本行")
+                else:
+                    kwargs.setdefault("oci_entity", "集团")
                 calculated_amounts = RuleCalculator(upload_dir, **kwargs).calculate(source_df)
             else:
                 group_kwargs = dict(kwargs)
                 parent_kwargs = dict(kwargs)
                 group_kwargs["subject_balance_prefix"] = "1-1-"
                 parent_kwargs["subject_balance_prefix"] = "1-12-"
+                group_kwargs.setdefault("oci_entity", "集团")
+                parent_kwargs.setdefault("oci_entity", "本行")
                 group_calculated_amounts = RuleCalculator(upload_dir, **group_kwargs).calculate(source_df)
                 parent_calculated_amounts = RuleCalculator(upload_dir, **parent_kwargs).calculate(source_df)
 
@@ -96,7 +107,8 @@ def build_report_from_rules(
             report_df["机构"] = institution_name
 
         for column in BASE_COLUMNS:
-            report_df[column] = source_df[column] if column in source_df.columns else pd.NA
+            source_column = _find_source_column(source_df, column)
+            report_df[column] = source_df[source_column] if source_column else pd.NA
         report_df["报表名称"] = report_config.get("display_name", report_df["报表名称"])
 
         if (
@@ -328,6 +340,15 @@ def _find_amount_column(
         if keyword in column_text and "金额" in column_text:
             return column
 
+    return None
+
+
+def _find_source_column(df: pd.DataFrame, column: str) -> str | None:
+    if column in df.columns:
+        return column
+    for alias in BASE_COLUMN_ALIASES.get(column, []):
+        if alias in df.columns:
+            return alias
     return None
 
 

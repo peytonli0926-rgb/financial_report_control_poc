@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$PackageName = "financial_report_control_platform",
     [switch]$IncludeRuntimeData,
     [switch]$Zip
@@ -21,6 +21,8 @@ $items = @(
     "app_recovered_full.cpython-314.pyc",
     "requirements.txt",
     "README.md",
+    "INSTALLATION_MANUAL.md",
+    "DELIVERY_FILE_LIST.md",
     "assets",
     "config",
     "engine",
@@ -42,6 +44,29 @@ foreach ($item in $items) {
 $dataRoot = Join-Path $PackageRoot "data"
 New-Item -ItemType Directory -Force -Path (Join-Path $dataRoot "upload") | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $dataRoot "output") | Out-Null
+
+$deliveryInputPrefixes = @("1-1-", "1-2-", "1-3-", "1-4-", "1-5-")
+foreach ($prefix in $deliveryInputPrefixes) {
+    $matches = Get-ChildItem -LiteralPath (Join-Path $Root "data\upload") -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name.StartsWith($prefix) }
+    foreach ($match in $matches) {
+        Copy-Item -LiteralPath $match.FullName -Destination (Join-Path $dataRoot "upload") -Force
+    }
+}
+
+$deliveryOutputFiles = @(
+    "资产负债表生成版.xlsx",
+    "利润表生成版.xlsx",
+    "合并股东权益变动表生成版.xlsx"
+)
+foreach ($fileName in $deliveryOutputFiles) {
+    $source = Join-Path $Root (Join-Path "data\output" $fileName)
+    if (Test-Path -LiteralPath $source) {
+        Copy-Item -LiteralPath $source -Destination (Join-Path $dataRoot "output") -Force
+    } else {
+        Write-Warning "Delivery output file not found: $source"
+    }
+}
 
 $templateSource = Join-Path $Root "data\upload\report_templates"
 if (Test-Path -LiteralPath $templateSource) {

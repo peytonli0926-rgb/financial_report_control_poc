@@ -331,6 +331,120 @@ report_types:
     - 买入返售债券
     - 买入返售金融资产减值准备
     - 买入返售金融资产
+  loans_advances_company_personal_6_1:
+    display_name: 五、6-1 发放贷款和垫款-按公司和个人分布情况
+    rule_keyword: 五、6-1 发放贷款和垫款-按公司和个人分布情况
+    pdf_parse_type: note_table
+    pdf_item_aliases:
+      以摊余成本计量-公司贷款和垫款:
+      - 公司贷款和垫款
+      以摊余成本计量-贸易融资:
+      - 贸易融资
+      以摊余成本计量-个人经营贷款:
+      - 个人经营贷款
+      以摊余成本计量-个人按揭贷款:
+      - 个人按揭贷款
+      以摊余成本计量-个人消费贷款:
+      - 个人消费贷款
+      以摊余成本计量-信用卡透支:
+      - 信用卡透支
+      以摊余成本计量-个人贷款和垫款:
+      - 个人贷款和垫款
+      以摊余成本计量的发放贷款及垫款总额:
+      - 以摊余成本计量的发放贷款及垫款总额
+      - 小计
+      以摊余成本计量的发放贷款和垫款减值准备:
+      - 减：以摊余成本计量的发放贷款和垫款减值准备
+      - 减:以摊余成本计量的发放贷款和垫款减值准备
+      - 减值准备
+      以摊余成本计量的发放贷款和垫款账面价值:
+      - 以摊余成本计量的发放贷款和垫款账面价值
+      以公允价值计量且其变动计入其他综合收益-票据贴现:
+      - 票据贴现
+      以公允价值计量且其变动计入其他综合收益的发放贷款和垫款账面价值:
+      - 以公允价值计量且其变动计入其他综合收益的发放贷款和垫款账面价值
+      发放贷款和垫款:
+      - 发放贷款和垫款
+      - 合计
+    pdf_keywords:
+    - 发放贷款和垫款
+    - 按公司和个人分布情况
+    - 公司贷款和垫款
+    - 个人贷款和垫款
+    - 贸易融资
+    - 信用卡透支
+    output_prefix: 发放贷款和垫款-按公司和个人分布情况
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 以摊余成本计量-公司贷款和垫款
+    - 以摊余成本计量-贸易融资
+    - 以摊余成本计量-个人经营贷款
+    - 以摊余成本计量-个人按揭贷款
+    - 以摊余成本计量-个人消费贷款
+    - 以摊余成本计量-信用卡透支
+    - 以摊余成本计量-个人贷款和垫款
+    - 以摊余成本计量的发放贷款及垫款总额
+    - 以摊余成本计量的发放贷款和垫款减值准备
+    - 以摊余成本计量的发放贷款和垫款账面价值
+    - 以公允价值计量且其变动计入其他综合收益-票据贴现
+    - 以公允价值计量且其变动计入其他综合收益的发放贷款和垫款账面价值
+    - 发放贷款和垫款
+  loans_advances_guarantee_6_2:
+    display_name: 五、6-2 发放贷款和垫款-按担保方式分布情况
+    rule_keyword: 五、6-2 发放贷款和垫款-按担保方式分布情况
+    pdf_parse_type: note_table
+    pdf_note_title_keyword: 发放贷款和垫款按担保方式分布情况
+    pdf_keywords:
+    - 发放贷款和垫款
+    - 按担保方式分布情况
+    - 信用贷款
+    - 保证贷款
+    - 抵押贷款
+    - 质押贷款
+    output_prefix: 发放贷款和垫款-按担保方式分布情况
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 信用贷款
+    - 保证贷款
+    - 抵押贷款
+    - 质押贷款
+    - 发放贷款和垫款
+  loans_advances_industry_6_3:
+    display_name: 五、6-3 发放贷款和垫款-按行业分布情况
+    rule_keyword: 五、6-3 发放贷款和垫款-按行业分布情况
+    pdf_parse_type: note_table
+    pdf_note_title_keyword: 发放贷款和垫款按行业分布情况
+    pdf_keywords:
+    - 发放贷款和垫款
+    - 按行业分布情况
+    - 公司贷款和垫款
+    - 票据贴现
+    output_prefix: 发放贷款和垫款-按行业分布情况
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 租赁和商务服务业公司贷款和垫款
+    - 制造业公司贷款和垫款
+    - 水利、环境和公共设施管理业公司贷款和垫款
+    - 交通运输、仓储和邮政业公司贷款和垫款
+    - 电力、热力、燃气及水生产和供应业公司贷款和垫款
+    - 批发和零售业公司贷款和垫款
+    - 建筑业公司贷款和垫款
+    - 卫生和社会工作公司贷款和垫款
+    - 房地产业公司贷款和垫款
+    - 农、林、牧、渔业公司贷款和垫款
+    - 教育公司贷款和垫款
+    - 文化、体育和娱乐业公司贷款和垫款
+    - 信息传输、软件和信息技术服务业公司贷款和垫款
+    - 金融业公司贷款和垫款
+    - 科学研究和技术服务业贷款和垫款
+    - 其他公司贷款和垫款
+    - 公司贷款和垫款
+    - 个人贷款和垫款
+    - 票据贴现
+    - 发放贷款和垫款
   financial_investments:
     display_name: 五、7-1 金融投资
     rule_keyword: 五、7-1 金融投资
@@ -1159,6 +1273,44 @@ report_types:
     key_items:
     - 股本溢价
     - 资本公积
+  other_comprehensive_income_29:
+    display_name: 五、29 其他综合收益
+    rule_keyword: 五、29 其他综合收益
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 其他综合收益
+    - 重新计量设定受益计划的变动额
+    - 其他权益工具投资公允价值变动
+    - 以公允价值计量且其变动计入其他综合收益
+    - 所得税影响
+    output_prefix: 其他综合收益
+    period_type: 混合
+    validation_type: amount_compare
+    key_items:
+    - 其他综合收益本年所得税前发生额
+    - 前期计入其他综合收益当期转入损益
+    - 其他综合收益-所得税影响
+    - 其他综合收益-税后归属于母公司
+    - 其他综合收益-税后归属于少数股东
+    - 归属于母公司股东的其他综合收益年末余额
+  surplus_reserve_30:
+    display_name: 五、30 盈余公积
+    rule_keyword: 五、30 盈余公积
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 盈余公积
+    - 法定盈余公积
+    - 任意盈余公积
+    output_prefix: 盈余公积
+    period_type: 混合
+    validation_type: amount_compare
+    key_items:
+    - 法定盈余公积利润分配
+    - 任意盈余公积利润分配
+    - 盈余公积利润分配
+    - 法定盈余公积期末余额
+    - 任意盈余公积期末余额
+    - 盈余公积期末余额
   general_risk_reserve_31:
     display_name: 五、31 一般风险准备
     rule_keyword: 五、31 一般风险准备
@@ -1171,8 +1323,316 @@ report_types:
     key_items:
     - 一般风险准备年末余额
     - 一般风险准备
+  profit_distribution_32:
+    display_name: 五、32 利润分配
+    rule_keyword: 五、32 利润分配
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 利润分配
+    - 本年净利润
+    - 提取法定盈余公积
+    - 提取一般风险准备
+    - 可供股东分配的利润
+    - 股利分配
+    - 永续债利息
+    - 年末未分配利润
+    output_prefix: 利润分配
+    period_type: 混合
+    validation_type: amount_compare
+    key_items:
+    - 本年净利润
+    - 提取法定盈余公积
+    - 提取一般风险准备
+    - 可供股东分配的利润
+    - 股利分配
+    - 永续债利息
+    - 年末未分配利润
+  interest_net_income_33:
+    display_name: 五、33 利息净收入
+    rule_keyword: 五、33 利息净收入
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 利息净收入
+    - 利息收入
+    - 利息支出
+    - 公司贷款利息收入
+    - 个人贷款利息收入
+    - 吸收存款利息支出
+    output_prefix: 利息净收入
+    period_type: 期间
+    validation_type: amount_compare
+    key_items:
+    - 利息收入
+    - 利息支出
+    - 利息净收入
+    - 公司贷款利息收入
+    - 个人贷款利息收入
+    - 吸收存款利息支出
+  fee_commission_net_income_34:
+    display_name: 五、34 手续费及佣金净收入
+    rule_keyword: 五、34 手续费及佣金净收入
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 手续费及佣金净收入
+    - 手续费及佣金收入
+    - 手续费及佣金支出
+    - 代理及受托业务佣金
+    - 银行卡手续费
+    - 结算与清算手续费
+    output_prefix: 手续费及佣金净收入
+    period_type: 期间
+    validation_type: amount_compare
+    key_items:
+    - 手续费及佣金收入
+    - 手续费及佣金支出
+    - 手续费及佣金净收入
+    - 代理及受托业务佣金
+    - 银行卡手续费
+    - 结算与清算手续费
+  investment_income_35:
+    display_name: 五、35 投资收益
+    rule_keyword: 五、35 投资收益
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 投资收益
+    - 交易性金融资产持有期间取得的投资收益
+    - 拆入资金持有期间取得的投资收益
+    - 交易性金融负债持有期间取得的投资收益
+    - 处置衍生金融工具取得的投资收益
+    - 处置票据贴现取得的投资收益
+    - 处置债权投资取得的投资收益
+    - 其他投资收益
+    output_prefix: 投资收益
+    period_type: 期间
+    validation_type: amount_compare
+    key_items:
+    - 投资收益
+    - 交易性金融资产持有期间取得的投资收益
+    - 拆入资金持有期间取得的投资收益
+    - 交易性金融负债持有期间取得的投资收益
+    - 处置衍生金融工具取得的投资收益
+    - 处置票据贴现取得的投资收益
+    - 处置交易性金融资产取得的投资收益
+    - 处置债权投资取得的投资收益
+    - 处置其他债权投资取得的投资收益
+    - 处置交易性金融负债取得的投资收益
+    - 成本法核算的长期股权投资收益
+    - 权益法核算的长期股权投资收益
+    - 其他投资收益
+  fair_value_change_36:
+    display_name: 五、36 公允价值变动净（损失） 收益
+    rule_keyword: 五、36 公允价值变动净（损失） 收益
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 公允价值变动净损失收益
+    - 公允价值变动净（损失） 收益
+    - 公允价值变动净收益
+    - 公允价值变动净损失
+    - 交易性金融资产公允价值变动
+    - 衍生金融工具公允价值变动
+    - 交易性金融负债公允价值变动
+    output_prefix: 公允价值变动净损失收益
+    period_type: 期间
+    validation_type: amount_compare
+    key_items:
+    - 公允价值变动净（损失）/收益
+    - 交易性金融资产公允价值变动净（损失）/收益
+    - 衍生金融工具公允价值变动净（损失）/收益
+    - 拆入资金公允价值变动净（损失）/收益
+    - 交易性金融负债公允价值变动净（损失）/收益
+  business_admin_expenses_37:
+    display_name: 五、37 业务及管理费
+    rule_keyword: 五、37 业务及管理费
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 业务及管理费
+    - 职工费用
+    - 业务费用
+    - 折旧费用
+    - 无形资产摊销
+    - 租赁费
+    - 长期待摊费用摊销
+    - 其他业务及管理费
+    output_prefix: 业务及管理费
+    period_type: 期间
+    validation_type: amount_compare
+    key_items:
+    - 职工费用
+    - 业务费用
+    - 折旧费用
+    - 无形资产摊销
+    - 租赁费
+    - 长期待摊费用摊销
+    - 其他业务及管理费
+    - 业务及管理费
+  credit_impairment_loss_38:
+    display_name: 五、38 信用减值损失
+    rule_keyword: 五、38 信用减值损失
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 信用减值损失
+    - 发放贷款和垫款信用减值损失
+    - 金融投资信用减值损失
+    - 买入返售金融资产信用减值损失
+    - 拆出资金信用减值损失
+    - 存放同业及其他金融机构款项信用减值损失
+    - 其他资产信用减值损失
+    - 信贷承诺信用减值损失
+    output_prefix: 信用减值损失
+    period_type: 期间
+    validation_type: amount_compare
+    key_items:
+    - 以摊余成本计量的发放贷款和垫款信用减值损失
+    - 以公允价值计量且其变动计入其他综合收益的发放贷款和垫款信用减值损失
+    - 发放贷款和垫款信用减值损失
+    - 债权投资信用减值损失
+    - 其他债权投资信用减值损失
+    - 金融投资信用减值损失
+    - 买入返售金融资产信用减值损失
+    - 拆出资金信用减值损失
+    - 存放同业及其他金融机构款项信用减值损失
+    - 其他资产信用减值损失
+    - 信贷承诺信用减值损失
+    - 信用减值损失
+  income_tax_expense_39_1:
+    display_name: 五、39-1 所得税费用-所得税费用组成
+    rule_keyword: 五、39-1 所得税费用-所得税费用组成
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 所得税费用
+    - 当期所得税
+    - 递延所得税
+    output_prefix: 所得税费用-所得税费用组成
+    period_type: 期间
+    validation_type: amount_compare
+    key_items:
+    - 当期所得税
+    - 递延所得税
+    - 所得税费用
+  income_tax_expense_39_2:
+    display_name: 五、39-2 所得税费用-所得税费用与会计利润的关系
+    rule_keyword: 五、39-2 所得税费用-所得税费用与会计利润的关系
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 所得税费用与会计利润的关系
+    - 利润总额
+    - 按照适用所得税率25%计算的所得税
+    - 所得税费用
+    output_prefix: 所得税费用-所得税费用与会计利润的关系
+    period_type: 期间
+    validation_type: amount_compare
+    key_items:
+    - 利润总额
+    - 按照适用所得税率25%计算的所得税
+    - 按子公司适用税率15%计算之所得税费用差额
+    - 非应税收入的影响
+    - 不可抵扣的费用的影响
+    - 永续债利息支出抵扣的影响
+    - 子公司所得税税率变动对前期递延所得税资产的影响
+    - 汇算清缴差异及其他
+    - 所得税费用
+  earnings_per_share_40_1:
+    display_name: 五、40-1 每股收益-基本及稀释每股收益
+    rule_keyword: 五、40-1 每股收益-基本及稀释每股收益
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 每股收益
+    - 基本及稀释每股收益
+    - 基本每股收益
+    output_prefix: 每股收益-基本及稀释每股收益
+    period_type: 期间
+    validation_type: amount_compare
+    key_items:
+    - 归属于本行普通股股东的合并净利润
+    - 发行在外普通股的加权平均数
+    - 基本每股收益
+  earnings_per_share_40_2:
+    display_name: 五、40-2 每股收益-归属于本行普通股股东的合并净利润计算过程
+    rule_keyword: 五、40-2 每股收益-归属于本行普通股股东的合并净利润计算过程
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 每股收益
+    - 归属于本行普通股股东的合并净利润计算过程
+    - 归属于本行股东的合并净利润
+    output_prefix: 每股收益-归属于本行普通股股东的合并净利润计算过程
+    period_type: 期间
+    validation_type: amount_compare
+    key_items:
+    - 归属于本行股东的合并净利润
+    - 归属于本行其他权益工具持有者的净利润
+    - 归属于本行普通股股东的合并净利润
+  earnings_per_share_40_3:
+    display_name: 五、40-3 每股收益-普通股的加权平均数计算过程
+    rule_keyword: 五、40-3 每股收益-普通股的加权平均数计算过程
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 每股收益
+    - 普通股的加权平均数计算过程
+    - 发行在外普通股的加权平均数
+    output_prefix: 每股收益-普通股的加权平均数计算过程
+    period_type: 期间
+    validation_type: amount_compare
+    key_items:
+    - 本年变动
+    - 发行在外普通股的加权平均数
+  collateral_information_42:
+    display_name: 五、42 担保物信息
+    rule_keyword: 五、42 担保物信息
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 担保物信息
+    - 作为担保物的资产
+    - 收到的担保物
+    output_prefix: 担保物信息
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 债券-担保物
+    - 债券-相关负债
+    - 票据-担保物
+    - 票据-相关负债
+    - 合计-担保物
+    - 合计-相关负债
+  unconsolidated_structured_entities_6_3:
+    display_name: 六、3 在未纳入合并财务报表范围的结构化主体中的权益
+    rule_keyword: 六、3 在未纳入合并财务报表范围的结构化主体中的权益
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 在未纳入合并财务报表范围的结构化主体中的权益
+    - 在第三方机构发起设立的结构化主体中享有的权益
+    - 未到期理财产品整体规模和最大损失敞口
+    output_prefix: 在未纳入合并财务报表范围的结构化主体中的权益
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 资产支持证券—交易性金融资产余额-结构化主体
+    - 资产支持证券—债权投资余额-结构化主体
+    - 资产支持证券—其他债权投资余额-结构化主体
+    - 基金投资 - 交易性金融资产余额-结构化主体
+    - 资管计划&信托—交易性金融资产余额-结构化主体
+    - 资管计划&信托—债权投资余额-结构化主体
+    - 理财产品—交易性金融资产余额-结构化主体
+    - 其他投资—交易性金融资产余额-结构化主体
+    - 其他投资—其他权益工具投资余额-结构化主体
+  associate_enterprise_interests_6_2:
+    display_name: 六、2 在联营企业中的权益
+    rule_keyword: 六、2 在联营企业中的权益
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 在联营企业中的权益
+    - 不重要联营企业的基本情况
+    - 不重要联营企业的汇总财务信息
+    output_prefix: 在联营企业中的权益
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 不重要联营企业
+    - 投资账面价值合计
+    - 净利润
+    - 其他综合收益
+    - 综合收益总额
   long_term_equity_investment:
-    display_name: 长期股权投资
+    display_name: 五、8-1长期股权投资
     rule_keyword: 五、8-1 长期股权投资
     pdf_parse_type: note_table
     pdf_item_aliases:
@@ -1231,3 +1691,110 @@ report_types:
     - 本行持股比例
     - 本行表决权比例
     - 注册资本
+  credit_commitment_8_1:
+    display_name: 八、1 信贷承诺
+    rule_keyword: 八、1 信贷承诺
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 信贷承诺
+    - 未使用的信用卡额度
+    - 银行承兑汇票
+    - 开出保函
+    - 开出信用证
+    output_prefix: 信贷承诺
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 未使用的信用卡额度
+    - 银行承兑汇票
+    - 开出保函
+    - 开出信用证
+    - 信贷承诺
+  credit_risk_concentration_10_1_3:
+    display_name: 十、1-3 信用风险-风险集中度
+    rule_keyword: 十、1-3 信用风险-风险集中度
+    detail_generator: credit_risk_concentration
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 信用风险
+    - 风险集中度
+    - 债券评级
+    - 评级标识
+    output_prefix: 信用风险-风险集中度
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 评级标识
+    - 交易性金融资产
+    - 债权投资
+    - 其他债权投资
+    - ECL_FINAL
+    - 合计
+  fair_value_hierarchy_11_1_1:
+    display_name: 十一、1-1 公允价值计量-公允计量的层次
+    rule_keyword: 十一、1-1 公允价值计量-公允计量的层次
+    detail_generator: fair_value_hierarchy
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 公允价值计量
+    - 公允计量的层次
+    - 第一层次
+    - 第二层次
+    - 第三层次
+    output_prefix: 公允价值计量-公允计量的层次
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 交易性金融资产
+    - 衍生金融资产
+    - 其他债权投资
+    - 其他权益工具投资
+    - 金融资产合计
+    - 交易性金融负债
+    - 衍生金融负债
+    - 金融负债合计
+  supplement_non_recurring_gain_loss_1:
+    display_name: 财报报表补充资料-1 非经常性损益
+    rule_keyword: 财报报表补充资料-1 非经常性损益
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 非经常性损益
+    - 归属于母公司普通股股东的净利润
+    - 扣除非经常性损益后归属于母公司普通股股东的净利润
+    output_prefix: 财报报表补充资料-1 非经常性损益
+    period_type: 期间
+    validation_type: amount_compare
+    key_items:
+    - 归属于母公司普通股股东的净利润
+    - 非流动资产处置收益
+    - 政府补助
+    - 罚款收入
+    - 长款收入
+    - 捐赠支出
+    - 罚款支出
+    - 其他营业外收支净额
+    - 所得税影响数
+    - 归属于少数股东的非经常性损益
+    - 扣除非经常性损益后归属于母公司普通股股东的净利润
+  financial_summary:
+    display_name: 财务摘要
+    rule_keyword: 财务摘要
+    pdf_parse_type: note_table
+    pdf_keywords:
+    - 财务摘要
+    - 经营业绩
+    - 规模指标
+    - 资产质量指标
+    output_prefix: 财务摘要
+    period_type: 混合
+    validation_type: amount_compare
+    key_items:
+    - 利息净收入
+    - 非利息净收入
+    - 营业收入
+    - 净利润
+    - 资产总额
+    - 负债总额
+    - 客户存款
+    - 不良贷款率
+    - 资本充足率

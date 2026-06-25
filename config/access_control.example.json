@@ -1,4 +1,4 @@
-﻿{
+{
   "users": [
     {
       "username": "admin",
@@ -19,9 +19,19 @@
     }
   ],
   "role_permissions": {
-    "admin": ["*"]
+    "admin": [
+      "*"
+    ],
+    "report_query": [
+      "view:report:investment_income_35",
+      "view:report:fair_value_change_36",
+      "view:report:business_admin_expenses_37",
+      "view:report:credit_impairment_loss_38"
+    ]
   },
   "user_roles": {
-    "admin": ["admin"]
+    "admin": [
+      "admin"
+    ]
   }
 }

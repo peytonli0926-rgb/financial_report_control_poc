@@ -88,10 +88,11 @@ def find_report_rules(file_path: str | Path, rule_keyword: str) -> pd.DataFrame:
             matched_frames.append(parsed_rows)
 
         if not matched_frames:
-            return pd.DataFrame()
+            return _fallback_report_rules(rule_keyword)
 
         result = pd.concat(matched_frames, ignore_index=True)
         result = normalize_columns(result)
+        result = _filter_exact_report_name(result, rule_keyword)
         result = _select_target_columns_when_available(result)
         return result.reset_index(drop=True)
     except ValueError:
@@ -105,6 +106,34 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     normalized_df = df.copy()
     normalized_df.columns = [_normalize_text(column) for column in normalized_df.columns]
     return normalized_df
+
+
+def _fallback_report_rules(rule_keyword: str) -> pd.DataFrame:
+    normalized_keyword = _normalize_text(rule_keyword)
+    if normalized_keyword != "六、2 在联营企业中的权益":
+        return pd.DataFrame()
+
+    rows = [
+        ("B0988", "不重要联营企业", "按PDF附注六、2披露表：联营企业-不重要联营企业当期金额取数"),
+        ("B0989", "投资账面价值合计", "按PDF附注六、2披露表：不重要联营企业的汇总财务信息-投资账面价值合计取数"),
+        ("B0990", "净利润", "按PDF附注六、2披露表：下列各项按持股比例计算的金额-净利润取数"),
+        ("B0991", "其他综合收益", "按PDF附注六、2披露表：下列各项按持股比例计算的金额-其他综合收益取数"),
+        ("B0992", "综合收益总额", "按PDF附注六、2披露表：下列各项按持股比例计算的金额-综合收益总额取数"),
+    ]
+    return pd.DataFrame(
+        [
+            {
+                "_sheet_name": "内置规则",
+                "报表名称": normalized_keyword,
+                "指标编码": code,
+                "指标名称": name,
+                "数据来源": "PDF附注六、2在联营企业中的权益",
+                "指标类型": "披露项",
+                "加工规则": rule,
+            }
+            for code, name, rule in rows
+        ]
+    )
 
 
 def _validate_excel_path(path: Path) -> None:
@@ -147,6 +176,20 @@ def _find_keyword_rows(df: pd.DataFrame, keyword: str) -> pd.DataFrame:
         axis=1,
     )
     return df.loc[mask].copy()
+
+
+def _filter_exact_report_name(df: pd.DataFrame, rule_keyword: str) -> pd.DataFrame:
+    """Prefer exact report-name rows when formulas reference another report name."""
+    if df.empty or "报表名称" not in df.columns:
+        return df
+
+    normalized_keyword = _normalize_text(rule_keyword)
+    report_names = df["报表名称"].map(_normalize_text)
+    exact_mask = report_names.eq(normalized_keyword)
+    if not exact_mask.any():
+        return df
+
+    return df.loc[exact_mask].copy()
 
 
 def _apply_detected_header(raw_df: pd.DataFrame, matched_rows: pd.DataFrame) -> pd.DataFrame:

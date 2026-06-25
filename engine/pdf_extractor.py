@@ -167,7 +167,7 @@ def extract_report_text(
     max_page_no = len(all_pages)
     # Note disclosures can continue onto the page immediately after a standalone
     # title/table page, for example the deposit reserve ratio rows.
-    offsets = (0, 1) if standalone_title_pages else (-1, 0, 1, 2)
+    offsets = (0, 1, 2) if standalone_title_pages else (-1, 0, 1, 2, 3)
     for page_no in selected_page_numbers:
         for offset in offsets:
             candidate = page_no + offset
@@ -243,6 +243,10 @@ def parse_note_table_amounts_from_text(
 ) -> pd.DataFrame:
     """Parse one-column note tables where each row label is followed by current/prior amounts."""
     page_texts = _normalize_text_input(text)
+    industry_rows = _parse_loans_advances_industry_note_rows(page_texts, [str(item_name) for item_name in item_names])
+    if industry_rows is not None:
+        return industry_rows
+
     aliases_by_item = item_aliases or {}
     title_keyword = str(note_title_keyword or "").strip() or _infer_note_title_keyword(item_names)
     all_aliases = [
@@ -266,6 +270,7 @@ def parse_note_table_amounts_from_text(
                 for page in page_texts
                 if _note_table_title_score(page["text"], title_keyword) == best_title_score
             ]
+
     rows: list[dict[str, Any]] = []
     derivative_note_rows = _parse_derivative_special_note_rows(page_texts, [str(item_name) for item_name in item_names])
     reverse_repo_note_rows = _parse_reverse_repo_special_note_rows(page_texts, [str(item_name) for item_name in item_names])
@@ -323,6 +328,126 @@ def parse_note_table_amounts_from_text(
             "PDF原始行文本",
         ],
     )
+
+
+def _parse_loans_advances_industry_note_rows(
+    page_texts: list[dict[str, Any]],
+    item_names: list[str],
+) -> pd.DataFrame | None:
+    if not _is_loans_advances_industry_items(item_names):
+        return None
+
+    rows: list[dict[str, Any]] = []
+    parsed_by_item: dict[str, dict[str, Any]] = {}
+    for page in page_texts:
+        page_rows = _parse_loans_advances_industry_page(page)
+        parsed_by_item.update({key: value for key, value in page_rows.items() if key not in parsed_by_item})
+
+    for item_name in item_names:
+        parsed = parsed_by_item.get(item_name)
+        rows.append(
+            {
+                "指标名称": item_name,
+                "PDF披露金额-集团": None if parsed is None else parsed["group_amount"],
+                "PDF披露金额-本行": None if parsed is None else parsed["parent_amount"],
+                "PDF来源页码": None if parsed is None else parsed["page_no"],
+                "PDF原始行文本": "" if parsed is None else parsed["raw_text"],
+            }
+        )
+    return pd.DataFrame(
+        rows,
+        columns=[
+            "指标名称",
+            "PDF披露金额-集团",
+            "PDF披露金额-本行",
+            "PDF来源页码",
+            "PDF原始行文本",
+        ],
+    )
+
+
+def _is_loans_advances_industry_items(item_names: list[str]) -> bool:
+    compact_items = {_compact_text(item_name) for item_name in item_names}
+    required = {
+        _compact_text("租赁和商务服务业公司贷款和垫款"),
+        _compact_text("制造业公司贷款和垫款"),
+        _compact_text("发放贷款和垫款"),
+    }
+    return required.issubset(compact_items)
+
+
+def _parse_loans_advances_industry_page(page: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    text = str(page.get("text") or "")
+    if "发放贷款和垫款按行业分布情况" not in text:
+        return {}
+
+    lines = [_normalize_line(line) for line in text.splitlines() if line.strip()]
+    labels_by_item = _loans_advances_industry_labels_by_item()
+    item_by_label = {_compact_text(label): item_name for item_name, label in labels_by_item.items()}
+    parsed: dict[str, dict[str, Any]] = {}
+
+    for index, line in enumerate(lines):
+        item_name = item_by_label.get(_compact_text(line))
+        if not item_name:
+            continue
+        values: list[float] = []
+        raw_lines = [line]
+        for next_line in lines[index + 1 : index + 12]:
+            if _compact_text(next_line) in item_by_label and values:
+                break
+            value = _parse_amount_or_percent_number(next_line)
+            if value is None:
+                if values:
+                    break
+                continue
+            values.append(value)
+            raw_lines.append(next_line)
+            if len(values) >= 8:
+                break
+        if len(values) < 5:
+            continue
+        parsed[item_name] = {
+            "page_no": page.get("page_no"),
+            "group_amount": values[0],
+            "parent_amount": values[4],
+            "raw_text": " | ".join(raw_lines),
+        }
+    return parsed
+
+
+def _loans_advances_industry_labels_by_item() -> dict[str, str]:
+    return {
+        "租赁和商务服务业公司贷款和垫款": "租赁和商务服务业",
+        "制造业公司贷款和垫款": "制造业",
+        "水利、环境和公共设施管理业公司贷款和垫款": "水利、环境和公共设施管理业",
+        "交通运输、仓储和邮政业公司贷款和垫款": "交通运输、仓储和邮政业",
+        "电力、热力、燃气及水生产和供应业公司贷款和垫款": "电力、热力、燃气及水生产和供应业",
+        "批发和零售业公司贷款和垫款": "批发和零售业",
+        "建筑业公司贷款和垫款": "建筑业",
+        "卫生和社会工作公司贷款和垫款": "卫生和社会工作",
+        "房地产业公司贷款和垫款": "房地产业",
+        "农、林、牧、渔业公司贷款和垫款": "农、林、牧、渔业",
+        "教育公司贷款和垫款": "教育",
+        "文化、体育和娱乐业公司贷款和垫款": "文化、体育和娱乐业",
+        "信息传输、软件和信息技术服务业公司贷款和垫款": "信息传输、软件和信息技术服务业",
+        "金融业公司贷款和垫款": "金融业",
+        "科学研究和技术服务业贷款和垫款": "科学研究和技术服务业",
+        "其他公司贷款和垫款": "其他",
+        "公司贷款和垫款": "公司贷款和垫款小计",
+        "个人贷款和垫款": "个人贷款和垫款",
+        "票据贴现": "票据贴现",
+        "发放贷款和垫款": "合计",
+    }
+
+
+def _parse_amount_or_percent_number(line: str) -> float | None:
+    text = str(line or "").strip().replace(",", "")
+    if not re.fullmatch(r"-?\d+(?:\.\d+)?", text):
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
 
 
 def _infer_note_title_keyword(item_names: list[str] | tuple[str, ...]) -> str:

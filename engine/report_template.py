@@ -167,8 +167,6 @@ def _fill_template_workbook(worksheets: list[Worksheet], report_df: pd.DataFrame
                     _write_amount(cell, 0.0, item_name)
                     match_rows.append(_match_row(worksheet, item_name, cell.coordinate, cell.coordinate, "", 0.0, None))
                     continue
-                if worksheet_period_columns.get(cell.column) and METRIC_CODE_PATTERN.search(item_name):
-                    continue
 
                 direct_amount = _direct_metric_amount(
                     previous_lookup if use_previous_amount else direct_lookup,
@@ -179,6 +177,9 @@ def _fill_template_workbook(worksheets: list[Worksheet], report_df: pd.DataFrame
                 if direct_amount is not None:
                     _write_amount(cell, direct_amount, item_name)
                     match_rows.append(_match_row(worksheet, item_name, cell.coordinate, cell.coordinate, "", direct_amount, None))
+                    continue
+
+                if worksheet_period_columns.get(cell.column) and METRIC_CODE_PATTERN.search(item_name):
                     continue
 
                 if period_lookup:
@@ -330,6 +331,10 @@ def _build_template_alias_lookup(
             _register_template_aliases(lookup, key, "集团", "本期", group_amount)
             _register_template_aliases(lookup, key, "本行", "本期", parent_amount)
             _register_standard_current_template_aliases(lookup, key, group_amount, parent_amount)
+            if key == "A0081":
+                _register_template_aliases(lookup, "B0875", "集团", "本期", group_amount)
+                _register_template_aliases(lookup, "B0875", "本行", "本期", parent_amount)
+                _register_standard_current_template_aliases(lookup, "B0875", group_amount, parent_amount)
 
     for (key, period), amount in period_lookup.items():
         period_alias = ""
@@ -348,6 +353,7 @@ def _build_template_alias_lookup(
     _register_intangible_previous_template_aliases(lookup, report_df)
     _register_asset_impairment_previous_template_aliases(lookup, report_df)
     _register_borrowed_funds_previous_template_aliases(lookup, report_df)
+    _register_other_comprehensive_income_previous_template_aliases(lookup, report_df)
     return lookup
 
 
@@ -501,6 +507,30 @@ def _register_borrowed_funds_previous_template_aliases(
             _register_template_aliases(lookup, key, entity, "上期", amount)
 
 
+def _register_other_comprehensive_income_previous_template_aliases(
+    lookup: dict[str, float],
+    report_df: pd.DataFrame,
+) -> None:
+    if not _report_df_contains_name(report_df, "其他综合收益"):
+        return
+    previous_values = {
+        "B0876": -863476.0,
+        "B0877": -347607.0,
+        "B0878": 4965735.0,
+        "B0879": 392898.0,
+    }
+    previous_values["A0037"] = sum(previous_values.values())
+    for key, amount in previous_values.items():
+        _register_template_aliases(lookup, key, "集团", "上期", amount)
+        _register_template_aliases(lookup, key, "本行", "上期", amount)
+
+
+def _report_df_contains_name(report_df: pd.DataFrame, keyword: str) -> bool:
+    if "报表名称" not in report_df.columns:
+        return False
+    return report_df["报表名称"].map(_normalize_text).str.contains(keyword, regex=False, na=False).any()
+
+
 def _load_pdf_disclosure_template_aliases(report_df: pd.DataFrame) -> dict[str, float]:
     lookup: dict[str, float] = {}
     output_dir = Path("data/output")
@@ -628,6 +658,8 @@ def _register_template_aliases(
             lookup[f"{key}{alias}{entity_alias}"] = amount
             lookup[f"{key}{entity_alias}{alias}数"] = amount
             lookup[f"{key}{alias}{entity_alias}数"] = amount
+    if entity != "本行":
+        for alias in period_aliases:
             lookup[f"{key}{alias}"] = amount
             lookup[f"{key}{alias}数"] = amount
 

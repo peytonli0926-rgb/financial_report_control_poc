@@ -29,7 +29,7 @@ function Find-Python {
         }
     }
 
-    throw "Python not found. Install Python 3.11+ or create .venv under the package root."
+    throw "Python not found. Install Python 3.14.x or create .venv under the package root."
 }
 
 $Python = Find-Python

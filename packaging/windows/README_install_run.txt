@@ -8,7 +8,7 @@ How to run:
 
 Prerequisites:
 - Windows 10/11.
-- Python 3.11+ available on PATH.
+- Python 3.14.x available on PATH. This build loads app_recovered_full.cpython-314.pyc, so older Python versions may fail.
 - First dependency installation needs access to a Python package index.
 
 Data folders:

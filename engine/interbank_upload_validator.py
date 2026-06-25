@@ -45,9 +45,21 @@ def validate_parent_interbank_principal(upload_dir: str | Path) -> ValidationRes
     subject_file = _find_file(upload_path, "1-12-")
     if detail_file is None or subject_file is None:
         return None
+    interest_total = sum_interbank_detail_amounts([detail_file], amount_col_index=11)
     ledger_total = sum_interbank_detail_amounts([detail_file], amount_col_index=13)
+    book_total = (ledger_total + interest_total).quantize(CENT, rounding=ROUND_HALF_UP)
     subject_total = sum_subject_net_debit(subject_file, PRINCIPAL_ACCOUNT_CODES)
-    return _result("母行存放同业本金校验", ledger_total, subject_total)
+    result = _result("母行存放同业本金校验", ledger_total, subject_total)
+    result.message = (
+        f"母行存放同业明细与科目余额校验{'通过' if result.passed else '未通过'}："
+        f"文件 {detail_file.name}；"
+        f"K列应计利息合计 {interest_total}，"
+        f"M列折合人民币余额合计 {ledger_total}，"
+        f"K+M合计 {book_total}；"
+        f"本行科目余额本金口径 {subject_total}，"
+        f"M列差异 {result.difference}。"
+    )
+    return result
 
 
 def validate_parent_interbank_interest(upload_dir: str | Path, mapped_file: str | Path | None = None) -> ValidationResult | None:

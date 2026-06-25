@@ -4,3 +4,4 @@ openpyxl
 pymupdf
 pyyaml
 numpy
+duckdb

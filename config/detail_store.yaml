@@ -1,0 +1,84 @@
+detail_store:
+  database_path: data/cache/detail_store/detail_store.duckdb
+  batch_size: 5000
+  datasets:
+    corporate_loans_advances_6_1:
+      file_key: corporate_loans_advances_6_1
+      table_name: corporate_loans_advances_6_1
+      source_prefix: 5-6-1-20251231
+      sheet_name: 0
+      header_row: auto
+      description: 五、6-1 发放贷款和垫款-按公司和个人分布情况：对公及垫款明细
+      columns: []
+    retail_loan_6_4_01:
+      file_key: retail_loan_6_4_01
+      table_name: retail_loan_6_4_01
+      source_prefix: 5-6-4-20251231-02-零售贷款-01
+      sheet_name: 0
+      header_row: auto
+      description: 五、6-4 零售贷款明细文件 01，仅缓存核心字段
+      columns:
+      - busi_pk_id
+      - biz_type
+      - busi_type
+      - start_dt
+      - dubil_matr_date
+      - GUARANTEE_TYPE_CD
+      - CURRENT_BALNC
+      - ACCR_INTEREST
+      - STAGE_RSLT_FINAL
+      - ECL_FINAL
+    retail_loan_6_4_02:
+      file_key: retail_loan_6_4_02
+      table_name: retail_loan_6_4_02
+      source_prefix: 5-6-4-20251231-02-零售贷款-02
+      sheet_name: 0
+      header_row: auto
+      description: 五、6-4 零售贷款明细文件 02，仅缓存核心字段
+      columns:
+      - busi_pk_id
+      - biz_type
+      - busi_type
+      - start_dt
+      - dubil_matr_date
+      - GUARANTEE_TYPE_CD
+      - CURRENT_BALNC
+      - ACCR_INTEREST
+      - STAGE_RSLT_FINAL
+      - ECL_FINAL
+    retail_loan_6_4_03:
+      file_key: retail_loan_6_4_03
+      table_name: retail_loan_6_4_03
+      source_prefix: 5-6-4-20251231-02-零售贷款-03
+      sheet_name: 0
+      header_row: auto
+      description: 五、6-4 零售贷款明细文件 03，仅缓存核心字段
+      columns:
+      - busi_pk_id
+      - biz_type
+      - busi_type
+      - start_dt
+      - dubil_matr_date
+      - GUARANTEE_TYPE_CD
+      - CURRENT_BALNC
+      - ACCR_INTEREST
+      - STAGE_RSLT_FINAL
+      - ECL_FINAL
+    retail_loan_6_4_04:
+      file_key: retail_loan_6_4_04
+      table_name: retail_loan_6_4_04
+      source_prefix: 5-6-4-20251231-02-零售贷款-04
+      sheet_name: 0
+      header_row: auto
+      description: 五、6-4 零售贷款明细文件 04，仅缓存核心字段
+      columns:
+      - busi_pk_id
+      - biz_type
+      - busi_type
+      - start_dt
+      - dubil_matr_date
+      - GUARANTEE_TYPE_CD
+      - CURRENT_BALNC
+      - ACCR_INTEREST
+      - STAGE_RSLT_FINAL
+      - ECL_FINAL

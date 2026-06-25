@@ -8,7 +8,7 @@
 
 前置要求：
 - Windows 10/11。
-- Python 3.11 或以上，并已加入 PATH。
+- Python 3.14.x，并已加入 PATH。当前版本启动时会加载 app_recovered_full.cpython-314.pyc，低版本 Python 可能无法运行。
 - 首次安装依赖需要能访问 Python 包源；如需完全离线安装，请随包提供 wheelhouse 并调整 start_app.ps1 的 pip 安装参数。
 
 数据目录：
