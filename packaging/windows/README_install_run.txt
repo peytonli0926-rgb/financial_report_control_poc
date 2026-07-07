@@ -1,9 +1,9 @@
-Financial Report Control Platform - Windows local package
+IFRS 18 Report Presentation Rule Switch Platform - Windows local package
 
 How to run:
-1. Double-click start_platform.bat in the package root, or run packaging\windows\start_app.ps1.
+1. Double-click start_ifrs18_platform.bat in the package root, or run packaging\windows\start_app.ps1.
 2. On first run, the script creates .venv and installs dependencies from requirements.txt.
-3. The browser opens http://127.0.0.1:8501 automatically.
+3. The browser opens http://127.0.0.1:8502 automatically.
 4. If it does not open automatically, open the URL manually.
 
 Prerequisites:

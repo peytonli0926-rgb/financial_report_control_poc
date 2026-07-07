@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
@@ -11,7 +12,6 @@ from engine.trade_finance_interest_adjustment import find_latest_impairment_file
 
 THOUSAND = Decimal("1000")
 TARGET_BIZ_TYPE = "01"
-AMOUNT_COLUMNS = ("CURRENT_BALNC", "ACCR_INTEREST", "利息调整")
 B0326_EXTRA_PREFIX = "5-7-3-1-20251231"
 B0326_EXTRA_BUSI_TYPE = "01004"
 B0326_EXTRA_AMOUNT_COLUMNS = ("CURRENT_BALNC", "ACCR_INTEREST")
@@ -65,13 +65,23 @@ def apply_loans_advances_industry_amounts(
     if not code_column or not group_column or not parent_column:
         return result
 
-    for item_code, industries in INDUSTRY_BY_CODE.items():
+    for item_code, default_industries in INDUSTRY_BY_CODE.items():
         mask = result[code_column].astype(str) == item_code
         if not mask.any():
             continue
-        amount_yuan = sum((industry_amounts.get(industry, Decimal("0")) for industry in industries), Decimal("0"))
-        if item_code == "B0326":
-            amount_yuan += b0326_extra_amount
+        rule_text_from_file = str(result.loc[mask, rule_column].iloc[0]) if rule_column else ""
+        effective_industries = _industries_from_rule(rule_text_from_file) or list(default_industries)
+        if item_code == "B0326" and _is_latest_b0326_rule(rule_text_from_file):
+            amount_yuan, b0326_note = _calculate_latest_b0326_amount(
+                upload_dir,
+                detail_df,
+                b0326_extra_file,
+            )
+        else:
+            amount_yuan = sum((industry_amounts.get(industry, Decimal("0")) for industry in effective_industries), Decimal("0"))
+            b0326_note = ""
+            if item_code == "B0326":
+                amount_yuan += b0326_extra_amount
         amount_thousand = _to_thousand_yuan(amount_yuan)
         result.loc[mask, group_column] = amount_thousand
         result.loc[mask, parent_column] = amount_thousand
@@ -84,23 +94,19 @@ def apply_loans_advances_industry_amounts(
             result.loc[mask, source_column] = source_names
         if type_column:
             result.loc[mask, type_column] = "明细汇总"
-        if rule_column:
-            rule_text = (
-                "5-7-3-2减值明细表：BIZ_TYPE='01'，按IND_FIR_GRA_CAT_NM汇总"
-                "CURRENT_BALNC+ACCR_INTEREST+利息调整"
-            )
-            if item_code == "B0326":
-                rule_text += (
-                    "；并加上5-7-3-1减值明细表：BIZ_TYPE='01' AND BUSI_TYPE='01004'，"
-                    "CURRENT_BALNC+ACCR_INTEREST"
-                )
-            result.loc[mask, rule_column] = rule_text
         if note_column:
-            note_text = f"行业范围：{', '.join(industries)}；金额单位已转换为千元。"
+            display_industries = ["空值" if industry == "" else industry for industry in effective_industries]
+            note_text = f"行业范围：{', '.join(display_industries)}；金额单位已转换为千元。"
+            if "" in effective_industries:
+                blank_amount = industry_amounts.get("", Decimal("0"))
+                note_text += f" 其中IND_FIR_GRA_CAT_NM为空金额：{_to_thousand_yuan(blank_amount)}千元。"
             if item_code == "B0326":
-                note_text += f" 5-7-3-1追加金额：{_to_thousand_yuan(b0326_extra_amount)}千元。"
-                if b0326_extra_file is None:
-                    note_text += " 未找到5-7-3-1文件，追加金额按0处理。"
+                if b0326_note:
+                    note_text = b0326_note
+                else:
+                    note_text += f" 5-7-3-1追加金额：{_to_thousand_yuan(b0326_extra_amount)}千元。"
+                    if b0326_extra_file is None:
+                        note_text += " 未找到5-7-3-1文件，追加金额按0处理。"
             result.loc[mask, note_column] = note_text
     return result
 
@@ -120,13 +126,119 @@ def _industry_amounts(df: pd.DataFrame) -> dict[str, Decimal]:
     data = df[df["BIZ_TYPE"].map(_normalize_code) == TARGET_BIZ_TYPE].copy()
     data["_industry"] = data["IND_FIR_GRA_CAT_NM"].map(_clean_text)
     data["_amount"] = data.apply(
-        lambda row: sum((_to_decimal(row.get(column)) for column in AMOUNT_COLUMNS), Decimal("0")),
+        lambda row: (
+            _to_decimal(row.get("CURRENT_BALNC"))
+            + _to_decimal(row.get("ACCR_INTEREST"))
+            - _to_decimal(row.get("利息调整"))
+        ),
         axis=1,
     )
     amounts: dict[str, Decimal] = {}
     for industry, values in data.groupby("_industry")["_amount"]:
         amounts[str(industry)] = sum(values, Decimal("0"))
     return amounts
+
+
+def _industries_from_rule(rule_text: str) -> list[str]:
+    industries: list[str] = []
+    for value in re.findall(r"IND_FIR_GRA_CAT_NM\s*=\s*['\"]([^'\"]+)['\"]", rule_text, flags=re.IGNORECASE):
+        _append_unique(industries, _clean_text(value))
+
+    for group_text in re.findall(r"IND_FIR_GRA_CAT_NM\s+IN\s*\(([^)]*)\)", rule_text, flags=re.IGNORECASE):
+        for value in re.findall(r"['\"]([^'\"]+)['\"]", group_text):
+            _append_unique(industries, _clean_text(value))
+
+    if _rule_includes_blank_industry(rule_text):
+        _append_unique(industries, "")
+    return industries
+
+
+def _append_unique(values: list[str], value: str) -> None:
+    if value not in values:
+        values.append(value)
+
+
+def _rule_includes_blank_industry(rule_text: str) -> bool:
+    normalized = _clean_text(rule_text).upper()
+    return any(
+        token in normalized
+        for token in (
+            "IND_FIR_GRA_CAT_NMISNULL",
+            "IND_FIR_GRA_CAT_NM=NULL",
+            "IND_FIR_GRA_CAT_NM为空",
+            "IND_FIR_GRA_CAT_NM空值",
+            "IND_FIR_GRA_CAT_NM为NULL",
+        )
+    )
+
+
+def _is_latest_b0326_rule(rule_text: str) -> bool:
+    normalized = _clean_text(rule_text).upper()
+    return "14011201" in normalized and "BUSI_TYPE='01004'" in normalized
+
+
+def _calculate_latest_b0326_amount(
+    upload_dir: str | Path,
+    detail_df: pd.DataFrame,
+    b0326_extra_file: Path | None,
+) -> tuple[Decimal, str]:
+    financial_detail = _detail_amount(
+        detail_df,
+        industry="金融业",
+        adjustment_sign=Decimal("-1"),
+    )
+    busi_01004 = _b0326_extra_amount(b0326_extra_file) if b0326_extra_file else Decimal("0")
+    subject_credit_net = _subject_14011201_credit_net_yuan(upload_dir)
+    biz01_interest_adjustment = _detail_biz01_interest_adjustment(detail_df)
+    amount = (
+        financial_detail
+        + busi_01004
+        - subject_credit_net
+        + biz01_interest_adjustment
+    )
+    note = (
+        "按最新B0326规则计算，金额单位已转换为千元。"
+        f" 5-7-3-2金融业减利息调整：{_to_thousand_yuan(financial_detail)}千元；"
+        f"5-7-3-1 BUSI_TYPE=01004：{_to_thousand_yuan(busi_01004)}千元；"
+        f"抵减14011201科目余额贷方轧差值：{_to_thousand_yuan(subject_credit_net)}千元；"
+        f"加回5-7-3-2 BIZ_TYPE=01利息调整：{_to_thousand_yuan(biz01_interest_adjustment)}千元。"
+    )
+    return amount, note
+
+
+def _detail_amount(df: pd.DataFrame, industry: str, adjustment_sign: Decimal) -> Decimal:
+    data = df[
+        (df["BIZ_TYPE"].map(_normalize_code) == TARGET_BIZ_TYPE)
+        & (df["IND_FIR_GRA_CAT_NM"].map(_clean_text) == industry)
+    ].copy()
+    return sum(
+        (
+            _to_decimal(row.get("CURRENT_BALNC"))
+            + _to_decimal(row.get("ACCR_INTEREST"))
+            + adjustment_sign * _to_decimal(row.get("利息调整"))
+            for _, row in data.iterrows()
+        ),
+        Decimal("0"),
+    )
+
+
+def _detail_biz01_interest_adjustment(df: pd.DataFrame) -> Decimal:
+    data = df[df["BIZ_TYPE"].map(_normalize_code) == TARGET_BIZ_TYPE].copy()
+    return sum((_to_decimal(value) for value in data["利息调整"]), Decimal("0"))
+
+
+def _subject_14011201_credit_net_yuan(upload_dir: str | Path) -> Decimal:
+    from engine.rule_calculator import RuleCalculator
+
+    calculator = RuleCalculator(
+        upload_dir,
+        subject_balance_prefix="1-12-",
+        report_period="20251231",
+    )
+    amount_thousand = calculator._calculate_subject_balance_rule("14011201科目余额贷方轧差值")
+    if amount_thousand is None:
+        return Decimal("0")
+    return Decimal(str(amount_thousand)) * THOUSAND
 
 
 def _find_latest_file(upload_dir: str | Path, prefix: str) -> Path | None:

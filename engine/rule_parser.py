@@ -144,12 +144,15 @@ def _validate_excel_path(path: Path) -> None:
 
 
 def _clean_dataframe_values(df: pd.DataFrame) -> pd.DataFrame:
-    """Drop fully empty rows/columns and forward-fill sparse cells from merges."""
+    """Drop fully empty rows/columns and normalize cell text.
+
+    Do not forward-fill the whole sheet: rule columns can be intentionally blank,
+    and carrying the previous formula down changes report semantics.
+    """
     cleaned = df.dropna(how="all").dropna(axis=1, how="all")
     if cleaned.empty:
         return cleaned
 
-    cleaned = cleaned.ffill()
     cleaned = cleaned.map(_clean_cell_value)
     cleaned = cleaned.dropna(how="all").dropna(axis=1, how="all")
     return cleaned.reset_index(drop=True)
@@ -170,9 +173,12 @@ def _normalize_text(value: Any) -> str:
 
 
 def _find_keyword_rows(df: pd.DataFrame, keyword: str) -> pd.DataFrame:
-    text_df = df.astype(str)
-    mask = text_df.apply(
-        lambda row: row.str.contains(keyword, regex=False, na=False).any(),
+    normalized_keyword = _normalize_text(keyword)
+    mask = df.apply(
+        lambda row: any(
+            normalized_keyword in _normalize_text(value)
+            for value in row.tolist()
+        ),
         axis=1,
     )
     return df.loc[mask].copy()

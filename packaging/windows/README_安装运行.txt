@@ -1,9 +1,9 @@
-财报智控平台 Windows 本地运行包
+IFRS 18 报表列报规则切换平台 Windows 本地运行包
 
 运行方式：
-1. 双击“启动财报智控平台.bat”。
+1. 双击“start_ifrs18_platform.bat”，或运行 packaging\windows\启动_IFRS18报表列报规则切换平台.bat。
 2. 首次运行会创建 .venv 并安装 requirements.txt 中的依赖。
-3. 浏览器会自动打开 http://127.0.0.1:8501。
+3. 浏览器会自动打开 http://127.0.0.1:8502。
 4. 如果浏览器未自动打开，请手动访问上述链接。
 
 前置要求：

@@ -1,5 +1,5 @@
 ﻿param(
-    [string]$PackageName = "financial_report_control_platform",
+    [string]$PackageName = "ifrs18_report_presentation_rule_switch_platform",
     [switch]$IncludeRuntimeData,
     [switch]$Zip
 )
@@ -85,7 +85,7 @@ if ($IncludeRuntimeData) {
     }
 }
 
-$launcher = Join-Path $PackageRoot "start_platform.bat"
+$launcher = Join-Path $PackageRoot "start_ifrs18_platform.bat"
 @"
 @echo off
 setlocal

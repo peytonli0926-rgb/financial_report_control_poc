@@ -36,6 +36,25 @@ report_types:
     - 营业利润
     - 利润总额
     - 净利润
+  amc_group_income_statement:
+    display_name: AMC集团利润表
+    rule_keyword: AMC集团利润表
+    pdf_keywords:
+    - AMC集团利润表
+    - 营业收入
+    - 营业支出
+    - 营业利润
+    - 利润总额
+    - 净利润
+    output_prefix: AMC集团利润表
+    period_type: 期间
+    validation_type: amount_compare
+    key_items:
+    - 营业收入合计
+    - 营业支出合计
+    - 营业利润
+    - 利润总额
+    - 净利润
   consolidated_shareholders_equity_statement:
     display_name: 合并股东权益变动表
     rule_keyword: 合并股东权益变动表
@@ -445,6 +464,47 @@ report_types:
     - 个人贷款和垫款
     - 票据贴现
     - 发放贷款和垫款
+  loans_advances_overdue_guarantee_6_4:
+    display_name: 五、6-4 发放贷款和垫款-按担保方式及逾期期限分布情况
+    rule_keyword: 五、6-4 发放贷款和垫款-按担保方式及逾期期限分布情况
+    pdf_parse_type: note_table
+    pdf_note_title_keyword: 发放贷款和垫款按担保方式及逾期期限分布情况
+    pdf_keywords:
+    - 发放贷款和垫款
+    - 按担保方式及逾期期限分布情况
+    - 逾期3个月以内
+    - 逾期3个月至1年
+    - 逾期1年以上3年以内
+    - 逾期3年以上
+    output_prefix: 发放贷款和垫款-按担保方式及逾期期限分布情况
+    period_type: 时点
+    validation_type: amount_compare
+    key_items:
+    - 逾期3个月以内(含3个月)信用贷款
+    - 逾期3个月以内(含3个月)保证贷款
+    - 逾期3个月以内(含3个月)抵押贷款
+    - 逾期3个月以内(含3个月)质押贷款
+    - 逾期3个月以内(含3个月)贷款
+    - 逾期3个月至1年(含1年)信用贷款
+    - 逾期3个月至1年(含1年)保证贷款
+    - 逾期3个月至1年(含1年)抵押贷款
+    - 逾期3个月至1年(含1年)质押贷款
+    - 逾期3个月至1年(含1年)贷款
+    - 逾期1年以上3年以内(含3年)信用贷款
+    - 逾期1年以上3年以内(含3年)保证贷款
+    - 逾期1年以上3年以内(含3年)抵押贷款
+    - 逾期1年以上3年以内(含3年)质押贷款
+    - 逾期1年以上3年以内(含3年)贷款
+    - 逾期3年以上信用贷款
+    - 逾期3年以上保证贷款
+    - 逾期3年以上抵押贷款
+    - 逾期3年以上质押贷款
+    - 逾期3年以上贷款
+    - 已逾期信用贷款
+    - 已逾期保证贷款
+    - 已逾期抵押贷款
+    - 已逾期质押贷款
+    - 已逾期贷款
   financial_investments:
     display_name: 五、7-1 金融投资
     rule_keyword: 五、7-1 金融投资

@@ -1,5 +1,5 @@
 param(
-    [int]$Port = 8501,
+    [int]$Port = 8502,
     [switch]$NoBrowser,
     [switch]$SkipInstall,
     [switch]$InstallOnly
@@ -52,7 +52,7 @@ if ($InstallOnly) {
 }
 
 $Url = "http://127.0.0.1:$Port"
-Write-Host "Starting Financial Report Control Platform: $Url"
+Write-Host "Starting IFRS 18 Report Presentation Rule Switch Platform: $Url"
 
 if (-not $NoBrowser) {
     Start-Job -ScriptBlock {

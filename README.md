@@ -1,6 +1,6 @@
-# financial_report_control_poc
+# IFRS 18 报表列报规则切换平台
 
-财报智控平台 Local POC 是一个本地离线运行的银行财报处理工具。当前版本聚焦“重庆农商行 2025 年财报校验”，支持基础文件上传、加工规则解析、资产负债表、利润表和合并股东权益变动表生成、PDF 年报披露金额提取和一致性校验。
+IFRS 18 报表列报规则切换平台是一个本地离线运行的银行财报处理工具。当前版本聚焦 IFRS 18 列报规则切换、加工规则解析、核心报表生成、PDF 年报披露金额提取和一致性校验。
 
 完整产品说明见 [PRD](docs/PRD.md)。
 
@@ -52,19 +52,19 @@ pip install -r requirements.txt
 启动本地页面：
 
 ```bash
-streamlit run app.py
+streamlit run app.py --server.port 8502
 ```
 
 如果使用项目内虚拟环境：
 
 ```bash
-./.venv/bin/streamlit run app.py
+.\.venv\Scripts\python.exe -m streamlit run app.py --server.port 8502
 ```
 
 浏览器访问：
 
 ```text
-http://localhost:8501
+http://localhost:8502
 ```
 
 ## Windows 本地安装包
@@ -90,15 +90,15 @@ http://localhost:8501
 安装包生成后位于：
 
 ```text
-dist/financial_report_control_platform/
+dist/ifrs18_report_presentation_rule_switch_platform/
 ```
 
 使用方式：
 
-1. 将 `dist/financial_report_control_platform` 复制到目标机器。
-2. 双击 `start_platform.bat`。
+1. 将 `dist/ifrs18_report_presentation_rule_switch_platform` 复制到目标机器。
+2. 双击 `start_ifrs18_platform.bat`。
 3. 首次运行会创建 `.venv` 并安装依赖。
-4. 浏览器访问 `http://127.0.0.1:8501`。
+4. 浏览器访问 `http://127.0.0.1:8502`。
 
 说明：当前是本地便携包，不是 MSI 安装向导。若目标环境要求“下一步/完成”式安装，可在该目录外层使用 Inno Setup 或 NSIS 制作安装器。
 
@@ -129,7 +129,7 @@ data/output/
 ## 项目结构
 
 ```text
-financial_report_control_poc/
+ifrs18_report_presentation_rule_switch_platform/
 ├── app.py
 ├── requirements.txt
 ├── config/
@@ -170,3 +170,58 @@ financial_report_control_poc/
 - 暂未从科目余额表重新计算全部指标
 - 暂不支持图片扫描型 PDF OCR
 - 暂不包含用户权限、任务调度和系统集成能力
+
+## 云端审计 Agent 财政部映射
+
+数据映射中心的“科目映射上传”支持使用云端大模型作为审计 Agent，自动把上传文件中的 `FSLine`、`NoteLine` 映射为：
+
+- `Grouping_Consolidated`：合并口径财政部报表项目，即列4。
+- `Grouping_Standalone`：单体口径财政部报表项目，即列5。
+- `Confidence`：模型判断置信度。
+- `MappingBasis`：审计 Agent 给出的映射依据。
+- `ReviewFlag`：是否需要人工复核。
+
+### 配置云端模型
+
+系统使用 OpenAI-compatible `/chat/completions` 接口。可接入 OpenAI、Azure OpenAI 或其他兼容服务。
+
+Windows PowerShell 示例：
+
+```powershell
+$env:FRC_AUDIT_AGENT_API_KEY="你的API Key"
+$env:FRC_AUDIT_AGENT_BASE_URL="https://api.openai.com/v1"
+$env:FRC_AUDIT_AGENT_MODEL="你的模型名称"
+```
+
+可选超时配置：
+
+```powershell
+$env:FRC_AUDIT_AGENT_TIMEOUT_SECONDS="90"
+```
+
+如果未配置 `FRC_AUDIT_AGENT_API_KEY`、`FRC_AUDIT_AGENT_BASE_URL`、`FRC_AUDIT_AGENT_MODEL`，页面会提示“云端审计 Agent 尚未配置”，生成映射时只使用本地确认库和本地规则兜底。
+
+### 映射优先级
+
+生成映射时按以下顺序执行：
+
+1. 已确认映射库精确命中：`FSLine + NoteLine + 公司类型`。
+2. 已确认映射库按明细命中：`NoteLine + 公司类型`。
+3. 云端审计 Agent：根据公司属性、合并/单体口径、金融行业审计经验生成列4和列5。
+4. 本地规则兜底：云端不可用或返回失败时使用本地规则，并对低置信度项目标记复核。
+
+### 使用流程
+
+1. 进入 `数据映射` -> `科目映射上传`。
+2. 点击对应机构类型的 `上传`，上传仅包含 `序号`、`FSLine`、`NoteLine` 的 Excel。
+3. 点击 `查看结果`，此时显示上传原始内容。
+4. 点击 `生成映射`，系统调用云端审计 Agent 生成列4、列5。
+5. 再点击 `查看结果`，此时显示映射后的内容。
+6. 点击 `下载映射`，本地修改复核结果。
+7. 将修改后的映射结果再次上传，系统会把它作为最终结果保存，并沉淀到：
+
+```text
+data/output/data_mapping/fiscal_mapping_agent/已确认映射库.xlsx
+```
+
+后续同类 `FSLine`、`NoteLine` 会优先复用该确认库，减少重复调用云端模型。

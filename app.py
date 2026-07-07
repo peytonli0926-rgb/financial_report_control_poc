@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import html
 import json
 import marshal
@@ -40,8 +41,8 @@ UPLOAD_DIR = _app["UPLOAD_DIR"]
 OUTPUT_DIR = _app["OUTPUT_DIR"]
 UPLOAD_METADATA_PATH = OUTPUT_DIR / "upload_metadata.json"
 UPLOAD_PROCESSING_HINT = "文件较大，后台处理中，请稍后再查看状态。"
-AI_INPUT_DIR = Path(r"D:\Linda\重农商\AI应用\重农财报智控平台AI版\AI输入")
-AI_OUTPUT_TEMPLATE_DIR = Path(r"D:\Linda\重农商\AI应用\重农财报智控平台AI版\AI输出\报表表样")
+AI_INPUT_DIR = BASE_DIR / "data" / "ai_input"
+AI_OUTPUT_TEMPLATE_DIR = BASE_DIR / "data" / "ai_output" / "report_templates"
 
 app_href = _app["app_href"]
 is_authenticated = _app["is_authenticated"]
@@ -51,6 +52,73 @@ render_top_user_bar = _app["render_top_user_bar"]
 render_workflow_home = _app["render_workflow_home"]
 
 _recovered_output_name_for_institution = _app["output_name_for_institution"]
+_recovered_get_primary_rule_file = _app["get_primary_rule_file"]
+_recovered_render_rule_parser_action = _app["render_rule_parser_action"]
+IFRS18_AUTH_SALT = "ifrs18_report_presentation_rule_switch_platform"
+
+
+def user_auth_token(user: dict) -> str:
+    payload = f"{user.get('username', '')}:{user.get('password_hash', '')}:{IFRS18_AUTH_SALT}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def get_primary_rule_file(file_groups: dict | None = None) -> Path | None:
+    """Resolve the primary rule file from this IFRS 18 project."""
+    if file_groups is None:
+        file_config = _app["load_file_templates"]()
+        file_groups = _app["get_file_groups"](file_config)
+    return _recovered_get_primary_rule_file(file_groups)
+
+
+def _rule_parse_output_path(report_key: str, report_config: dict) -> Path:
+    display_name = str(report_config.get("display_name") or report_key or "报表")
+    safe_name = re.sub(r'[<>:"/\\|?*\r\n\t]+', "_", display_name).strip(" ._") or str(report_key or "report")
+    return OUTPUT_DIR / f"{safe_name}规则解析结果.xlsx"
+
+
+def render_rule_parser_action(file_groups: dict, report_key: str, report_config: dict) -> None:
+    rule_file_path = get_primary_rule_file(file_groups)
+    display_name = str(report_config.get("display_name") or report_key)
+    rule_keyword = str(report_config.get("rule_keyword") or display_name)
+    state_key = f"parse_{report_key}_rules"
+    path_state_key = f"parse_{report_key}_rules_path"
+
+    if not rule_file_path:
+        st.warning("请先上传加工规则文件，再解析加工规则。")
+        return
+
+    st.caption(f"规则文件：{rule_file_path}")
+    if st.button("解析加工规则", key=f"parse_{report_key}", use_container_width=True):
+        try:
+            with st.spinner(f"正在解析{display_name}加工规则..."):
+                rules_df = _app["find_report_rules"](rule_file_path, rule_keyword)
+                st.session_state[state_key] = rules_df
+                st.session_state[f"{report_key}_rules"] = rules_df
+                output_path = _rule_parse_output_path(report_key, report_config)
+                if rules_df is not None and not rules_df.empty:
+                    output_path.parent.mkdir(parents=True, exist_ok=True)
+                    rules_df.to_excel(output_path, index=False)
+                    st.session_state[path_state_key] = str(output_path)
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"加工规则解析失败：{exc}")
+            return
+
+    rules_df = st.session_state.get(state_key)
+    if rules_df is None:
+        return
+    if getattr(rules_df, "empty", True):
+        st.warning(f"未找到与“{rule_keyword}”相关的加工规则。")
+        return
+
+    output_path_text = st.session_state.get(path_state_key)
+    suffix = f"，结果已保存：{output_path_text}" if output_path_text else ""
+    st.success(f"已解析到 {len(rules_df)} 条{display_name}规则{suffix}")
+    st.dataframe(rules_df, use_container_width=True, hide_index=True)
+
+
+_app["get_primary_rule_file"] = get_primary_rule_file
+_app["render_rule_parser_action"] = render_rule_parser_action
+_app["user_auth_token"] = user_auth_token
 
 
 def _format_excel_cell_value(value, number_format: str = "") -> str:
@@ -135,13 +203,16 @@ def render_ai_output_template_dir_shortcut(key: str) -> None:
 
 
 MENU_LABEL_REPLACEMENTS = [
-    ("报表校验及发布", "智能校验与发布"),
+    ("报表校验及发布", "报表发布"),
     ("所有者权益变动表", "权益变动智能视图"),
     ("资产负债表", "资产负债智能视图"),
+    ("文件上传", "数据接入中心"),
     ("上传文件", "数据接入中心"),
+    ("规则上传", "规则编排中心"),
     ("上传规则", "规则编排中心"),
-    ("生成报表", "AI 报表生成"),
-    ("发布报表", "智能校验与发布"),
+    ("生成报表", "AI报表生成"),
+    ("智能校验与发布", "报表发布"),
+    ("发布报表", "报表发布"),
     ("查看报表", "报表洞察中心"),
     ("财务报表", "核心财报总览"),
     ("财务报告", "核心财报总览"),
@@ -149,8 +220,8 @@ MENU_LABEL_REPLACEMENTS = [
     ("报表制作", "智能报表工厂"),
     ("利润表", "经营成果智能视图"),
     ("报表附注", "附注披露中心"),
-    ("工作台首页", "智能驾驶舱"),
-    ("首页", "智能驾驶舱"),
+    ("工作台首页", "IFRS 18报表规则转换平台"),
+    ("首页", "IFRS 18报表规则转换平台"),
 ]
 
 
@@ -159,6 +230,8 @@ def _rename_menu_labels(value):
         renamed = value
         for old_label, new_label in MENU_LABEL_REPLACEMENTS:
             renamed = renamed.replace(old_label, new_label)
+        while "AIAI报表生成" in renamed:
+            renamed = renamed.replace("AIAI报表生成", "AI报表生成")
         return renamed
     if isinstance(value, list):
         return [_rename_menu_labels(item) for item in value]
@@ -402,18 +475,18 @@ def apply_prd_styles() -> None:
         [data-testid="stSidebar"][aria-expanded="true"],
         section[data-testid="stSidebar"][aria-expanded="true"],
         [data-testid="stSidebar"] {
-            width: 340px !important;
-            min-width: 340px !important;
-            max-width: 340px !important;
-            flex-basis: 340px !important;
+            width: 228px !important;
+            min-width: 228px !important;
+            max-width: 228px !important;
+            flex-basis: 228px !important;
         }
         [data-testid="stSidebarContent"],
         [data-testid="stSidebarUserContent"],
         [data-testid="stSidebar"] > div,
         [data-testid="stSidebar"] > div > div {
-            width: 340px !important;
-            min-width: 340px !important;
-            max-width: 340px !important;
+            width: 228px !important;
+            min-width: 228px !important;
+            max-width: 228px !important;
             cursor: default !important;
         }
         [data-testid="stSidebar"] * {
@@ -427,8 +500,8 @@ def apply_prd_styles() -> None:
         div[data-testid="stAppViewContainer"] > .main,
         div[data-testid="stAppViewContainer"] section.main,
         div[data-testid="stAppViewContainer"] main {
-            width: calc(100vw - 340px) !important;
-            max-width: calc(100vw - 340px) !important;
+            width: calc(100vw - 228px) !important;
+            max-width: calc(100vw - 228px) !important;
             margin-left: 0 !important;
         }
         div[data-testid="stAppViewContainer"] .block-container {
@@ -443,22 +516,39 @@ def apply_prd_styles() -> None:
         }
         div[data-testid="column"]:has(.side-menu),
         div[data-testid="column"]:has(.product-title) {
-            flex: 0 0 360px !important;
-            width: 360px !important;
-            min-width: 360px !important;
-            max-width: 360px !important;
+            flex: 0 0 228px !important;
+            width: 228px !important;
+            min-width: 228px !important;
+            max-width: 228px !important;
         }
         div[data-testid="column"]:has(.side-menu) > div,
         div[data-testid="column"]:has(.product-title) > div {
-            width: 360px !important;
-            min-width: 360px !important;
-            max-width: 360px !important;
+            width: 228px !important;
+            min-width: 228px !important;
+            max-width: 228px !important;
+            box-sizing: border-box !important;
+            overflow: hidden !important;
+        }
+        [data-testid="stSidebar"] .side-menu,
+        div[data-testid="column"]:has(.side-menu) .side-menu {
+            width: 228px !important;
+            min-width: 228px !important;
+            max-width: 228px !important;
+            overflow: hidden !important;
+            box-sizing: border-box !important;
+        }
+        [data-testid="stSidebar"] .demo-menu-item,
+        div[data-testid="column"]:has(.side-menu) .demo-menu-item {
+            width: 196px !important;
+            min-width: 196px !important;
+            max-width: 196px !important;
+            overflow: hidden !important;
             box-sizing: border-box !important;
         }
         div[data-testid="column"]:has(.side-menu) + div[data-testid="column"],
         div[data-testid="column"]:has(.product-title) + div[data-testid="column"] {
-            flex: 1 1 calc(100% - 360px) !important;
-            width: calc(100% - 360px) !important;
+            flex: 1 1 calc(100% - 228px) !important;
+            width: calc(100% - 228px) !important;
             max-width: none !important;
             min-width: 0 !important;
         }
@@ -488,8 +578,8 @@ def handle_login_submit(access_control: dict, username: str, password: str) -> b
 
 def render_login_page(access_control: dict) -> None:
     """Render the active login screen without falling back to the recovered legacy UI."""
-    title = "\u767b\u5f55\u8d22\u62a5\u667a\u63a7\u5e73\u53f0"
-    subtitle = "\u4f7f\u7528\u5df2\u6388\u6743\u8d26\u53f7\u8fdb\u5165\u62a5\u8868\u7f16\u5236\u3001\u6570\u636e\u6821\u9a8c\u548c\u62ab\u9732\u7ba1\u7406\u5de5\u4f5c\u53f0\u3002"
+    title = "登录IFRS 18报表规则转换平台"
+    subtitle = "使用已授权账号进入 IFRS 18 列报规则切换、映射校验和加工追溯工作台。"
     footer = "\u6570\u636e\u5b89\u5168\u4fdd\u62a4\u4e2d · \u4f20\u8f93\u52a0\u5bc6 · \u6743\u9650\u7ba1\u63a7 · \u64cd\u4f5c\u53ef\u8ffd\u6eaf"
 
     st.markdown(
@@ -508,8 +598,8 @@ def render_login_page(access_control: dict) -> None:
             display: none !important;
         }
         .block-container {
-            max-width: 1180px !important;
-            padding: 1.35rem 3.4rem .8rem !important;
+            max-width: 1060px !important;
+            padding: 1.55rem 1.8rem .8rem !important;
         }
         .stApp {
             background:
@@ -533,23 +623,25 @@ def render_login_page(access_control: dict) -> None:
             z-index: 1;
         }
         .login-visual-card {
-            max-width: 560px;
-            margin: .6rem auto 0;
-            padding: 1.05rem;
+            position: relative;
+            max-width: 455px;
+            margin: .8rem 0 0 auto;
+            padding: .9rem;
             border-radius: 28px;
             background: rgba(255, 255, 255, .70);
             border: 1px solid rgba(201, 219, 246, .92);
             box-shadow: 0 26px 72px rgba(24, 91, 178, .15);
             backdrop-filter: blur(12px);
+            overflow: hidden;
         }
         .login-visual-card img {
             width: 100%;
             display: block;
-            border-radius: 20px;
+            border-radius: 19px;
         }
         .login-copy {
             max-width: 430px;
-            margin: .6rem auto 0;
+            margin: .8rem auto 0 0;
             padding: 2rem 2.35rem 1.25rem;
             border-radius: 24px 24px 0 0;
             background: rgba(255, 255, 255, .90);
@@ -593,7 +685,7 @@ def render_login_page(access_control: dict) -> None:
         }
         div[data-testid="stForm"] {
             max-width: 430px;
-            margin: -1px auto 0;
+            margin: -1px auto 0 0;
             padding: 0 2.35rem 2rem;
             border: 1px solid rgba(204, 221, 247, .96) !important;
             border-top: 0 !important;
@@ -647,7 +739,7 @@ def render_login_page(access_control: dict) -> None:
         }
         .login-browser {
             max-width: 430px;
-            margin: .9rem auto 0;
+            margin: .9rem auto 0 0;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -672,6 +764,12 @@ def render_login_page(access_control: dict) -> None:
         @media (max-width: 980px) {
             .block-container { padding: 1rem !important; }
             .login-visual-card { display: none; }
+            .login-copy,
+            div[data-testid="stForm"],
+            .login-browser {
+                margin-left: auto;
+                margin-right: auto;
+            }
             .login-copy { margin-top: 1rem; }
         }
         </style>
@@ -686,7 +784,7 @@ def render_login_page(access_control: dict) -> None:
     if visual_path.exists():
         visual_data_uri = "data:image/png;base64," + base64.b64encode(visual_path.read_bytes()).decode("ascii")
 
-    left, right = st.columns([1.28, 0.92], gap="large")
+    left, right = st.columns([1.12, 0.88], gap="small")
     with left:
         if visual_data_uri:
             st.markdown(
@@ -742,6 +840,10 @@ FILE_PERMISSION_ACTION_LABELS = {
 FILE_SOURCE_ALIASES = {
     "subject_balance": ["\u79d1\u76ee\u4f59\u989d\u8868"],
     "parent_subject_balance": ["\u672c\u884c\u79d1\u76ee\u4f59\u989d\u8868"],
+    "asset_company_subject_balance": ["\u8d44\u4ea7\u516c\u53f8\u79d1\u76ee\u4f59\u989d\u8868", "301_01_20251231", "\u8d44\u4ea7\u516c\u53f8"],
+    "bank_subject_balance": ["\u94f6\u884c\u7c7b\u79d1\u76ee\u4f59\u989d\u8868", "302_01_20251231", "\u94f6\u884c\u7c7b"],
+    "securities_subject_balance": ["\u8bc1\u5238\u7c7b\u79d1\u76ee\u4f59\u989d\u8868", "303_01_20251231", "\u8bc1\u5238\u7c7b"],
+    "insurance_subject_balance": ["\u4fdd\u9669\u7c7b\u79d1\u76ee\u4f59\u989d\u8868", "304_01_20251231", "\u4fdd\u9669\u7c7b"],
     "audit_adjustment_parent": ["\u5ba1\u8ba1\u8c03\u6574\u8868", "\u5ba1\u8ba1\u8c03\u6574_\u5e95\u7a3f_\u672c\u884c", "\u672c\u884c\u5ba1\u8ba1\u8c03\u6574"],
     "audit_adjustment_subsidiary": ["\u5ba1\u8ba1\u8c03\u6574\u8868", "\u5ba1\u8ba1\u8c03\u6574_\u5e95\u7a3f_\u5b50\u516c\u53f8", "\u5b50\u516c\u53f8\u5ba1\u8ba1\u8c03\u6574"],
     "consolidation_elimination": ["\u5408\u5e76\u62a5\u8868\u62b5\u9500\u8868", "\u5408\u5e76\u62b5\u6d88", "\u5408\u5e76\u62b5\u9500", "\u5408\u5e76\u62b5\u6d88\u5e95\u7a3f"],
@@ -1054,6 +1156,15 @@ def _apply_upload_page_styles() -> None:
             padding: 10px 12px;
             margin-top: 12px;
         }
+        .subject-mapping-table-header-cell {
+            color: #5b6b83;
+            font-size: 13px;
+            font-weight: 900;
+            line-height: 1.2;
+            padding: 10px 0 12px;
+            border-bottom: 1px solid #cbd8ea;
+            white-space: nowrap;
+        }
         .upload-file-name {
             color: var(--upload-title);
             font-size: 14px;
@@ -1067,6 +1178,38 @@ def _apply_upload_page_styles() -> None:
             line-height: 1.35;
             margin-top: 4px;
             word-break: break-all;
+        }
+        .upload-file-meta {
+            color: #8aa0b8;
+            font-size: 12px;
+            line-height: 1.35;
+            margin-top: 6px;
+        }
+        .subject-mapping-row-divider {
+            height: 1px;
+            background: linear-gradient(90deg, transparent, #cbd8ea 8%, #cbd8ea 92%, transparent);
+            margin: 16px 0 14px;
+        }
+        .subject-card {
+            margin: 14px 0 18px;
+            padding: 18px 20px;
+            border: 1px solid #d7e5f6;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.36);
+        }
+        .subject-card-head {
+            display: grid;
+            grid-template-columns: 64px 150px minmax(360px, 1fr);
+            gap: 18px;
+            align-items: start;
+            margin-bottom: 14px;
+        }
+        .subject-card-index,
+        .subject-card-type {
+            color: var(--upload-title);
+            font-size: 15px;
+            font-weight: 900;
+            line-height: 1.35;
         }
         .upload-type-pill {
             display: inline-flex;
@@ -1096,7 +1239,7 @@ def _apply_upload_page_styles() -> None:
             background: #fffbeb;
             border-color: #fde68a;
         }
-        .upload-status-uploaded, .upload-status-check_passed {
+        .upload-status-uploaded, .upload-status-check_passed, .upload-status-mapped {
             color: #047857;
             background: #ecfdf5;
             border-color: #a7f3d0;
@@ -1121,12 +1264,20 @@ def _apply_upload_page_styles() -> None:
         }
         [data-testid="stFileUploader"] {
             margin: 0 !important;
+            display: flex !important;
+            align-items: flex-start !important;
         }
         [data-testid="stFileUploader"] section {
             min-height: 34px !important;
+            height: 34px !important;
+            max-height: 34px !important;
+            display: flex !important;
+            align-items: flex-start !important;
+            justify-content: flex-start !important;
             padding: 0 !important;
             border: 0 !important;
             background: transparent !important;
+            overflow: visible !important;
         }
         [data-testid="stFileUploader"] section > div {
             display: none !important;
@@ -1154,13 +1305,34 @@ def _apply_upload_page_styles() -> None:
             font-size: 13px !important;
             font-weight: 800 !important;
         }
+        div[data-testid="column"]:has([data-testid="stFileUploader"]):has(+ div[data-testid="column"] [data-testid="stButton"]),
+        div[data-testid="column"]:has([data-testid="stDownloadButton"]),
+        div[data-testid="column"]:has([data-testid="stButton"]) {
+            align-items: flex-start !important;
+            align-self: flex-start !important;
+            padding-top: 0 !important;
+        }
+        .subject-status-cell {
+            display: flex !important;
+            align-items: center !important;
+            justify-content: flex-start !important;
+        }
+        [data-testid="stButton"] button,
+        [data-testid="stLinkButton"] a,
         .stDownloadButton button {
             min-height: 34px !important;
             height: 34px !important;
-            padding: 0 14px !important;
+            padding: 0 12px !important;
             border-radius: 999px !important;
             font-size: 13px !important;
             font-weight: 800 !important;
+        }
+        [data-testid="stButton"] button p,
+        [data-testid="stLinkButton"] a p,
+        .stDownloadButton button p {
+            white-space: nowrap !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
         }
         @media (max-width: 1100px) {
             .upload-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1247,6 +1419,7 @@ def _status_label(status: str) -> str:
         "quality_issue_group": "数据质量异常",
         "pending_upload": "待上传",
         "uploaded": "已上传",
+        "mapped": "已生成映射",
         "processing": "处理中",
         "check_passed": "校验通过",
         "check_failed": "校验失败",
@@ -1517,11 +1690,6 @@ def render_permission_limited_upload_row(index: int, record: dict) -> None:
 
 def render_base_file_uploaders(base_files: list[dict]) -> None:
     _apply_upload_page_styles()
-    query_status = st.query_params.get("upload_status_filter")
-    if query_status in {"all", "uploaded", "uploaded_group", "pending_upload", "quality_issue_group"}:
-        if st.session_state.get("upload_filter_status") != query_status:
-            st.session_state["upload_filter_status"] = query_status
-            st.session_state["upload_table_page"] = 1
     access_control = _app["load_access_control"]()
     user = _app["current_user"](access_control)
     permission_index = build_rule_file_permission_index(base_files)
@@ -1543,51 +1711,9 @@ def render_base_file_uploaders(base_files: list[dict]) -> None:
 
     records = _build_upload_records(visible_rows, permission_index)
     _render_upload_summary_cards(records)
-    _render_batch_upload_panel(records)
-    _render_upload_filters(records)
-
-    filtered_records = _filter_upload_records(records)
-
-    page_size = 10
-    total_pages = max(1, (len(filtered_records) + page_size - 1) // page_size)
-    current_page = max(1, min(int(st.session_state.get("upload_table_page", 1)), total_pages))
-    st.session_state["upload_table_page"] = current_page
-
-    start_index = (current_page - 1) * page_size
-    page_rows = filtered_records[start_index:start_index + page_size]
     _render_upload_table_header()
-    if not page_rows:
-        st.markdown('<div class="upload-empty">未找到符合条件的文件</div>', unsafe_allow_html=True)
-    for offset, record in enumerate(page_rows, start=1):
-        render_permission_limited_upload_row(start_index + offset, record)
-
-    nav_left, nav_mid, nav_jump, nav_right = st.columns([1.1, 2.5, 1.2, 1.1])
-    if nav_left.button("上一页", disabled=current_page <= 1, use_container_width=True):
-        st.session_state["upload_table_page"] = current_page - 1
-        st.rerun()
-    nav_mid.markdown(
-        f"<div style='text-align:center;padding-top:.55rem;color:#5b6b83;'>共 {len(filtered_records)} 条，第 {current_page} / {total_pages} 页</div>",
-        unsafe_allow_html=True,
-    )
-    jump_page = nav_jump.number_input(
-        "跳至",
-        min_value=1,
-        max_value=total_pages,
-        value=current_page,
-        step=1,
-        label_visibility="collapsed",
-    )
-    if int(jump_page) != current_page:
-        st.session_state["upload_table_page"] = int(jump_page)
-        st.rerun()
-    if nav_right.button("下一页", disabled=current_page >= total_pages, use_container_width=True):
-        st.session_state["upload_table_page"] = current_page + 1
-        st.rerun()
-
-    render_interbank_interest_mapping_action()
-    render_structured_entities_bond_ecl_mapping_action()
-    render_interbank_generated_downloads()
-    render_structured_entities_generated_downloads()
+    for offset, record in enumerate(records, start=1):
+        render_permission_limited_upload_row(offset, record)
 
 
 def render_interbank_interest_mapping_action() -> None:
@@ -2333,6 +2459,7 @@ def _worksheet_to_html(worksheet) -> str:
             html_text = _normalize_other_assets_preview_html(worksheet, html_text)
 
         html_text = _normalize_note_detail_preview_html(worksheet, html_text)
+        html_text = _link_amc_income_statement_preview_html(worksheet, html_text)
 
         is_deposit_report = str(worksheet["A1"].value or "").strip() == "存放同业及其他金融机构款项"
         if not (is_deposit_report and str(worksheet["B2"].value or "").strip() == "20251231"):
@@ -2367,6 +2494,88 @@ def _worksheet_to_html(worksheet) -> str:
         return html_text
     except Exception:
         return html_text
+
+
+def _link_amc_income_statement_preview_html(worksheet, html_text: str) -> str:
+    if str(worksheet["A1"].value or "").strip() != "财政部口径利润表":
+        return html_text
+    if "IFRS18口径利润表" not in str(worksheet["E1"].value or ""):
+        return html_text
+
+    ifrs18_metric_sequence = [
+        ("收入", "A6030"),
+        ("不良债权资产公允价值变动", "A6031"),
+        ("不良债权投资收益", "A6032"),
+        ("利息收入", "A6033"),
+        ("存货销售收入", "A6034"),
+        ("佣金及手续费收入", "A6035"),
+        ("其他金融工具公允价值变动", "A6036"),
+        ("其他经营收入", "A6037"),
+        ("成本费用", "A6038"),
+        ("员工薪酬", "A6039"),
+        ("存货销售成本", "A6040"),
+        ("佣金及手续费支出", "A6041"),
+        ("税金及附加", "A6042"),
+        ("折旧及摊销费用", "A6043"),
+        ("信用减值损失", "A6044"),
+        ("其他资产减值损失", "A6045"),
+        ("经营成本", "A6046"),
+        ("经营类净收益", "A6047"),
+        ("非核心投资收益", "A6048"),
+        ("其他金融工具公允价值变动", "A6049"),
+        ("处置子公司/联营合营", "A6050"),
+        ("长期股权投资收益", "A6051"),
+        ("其他投资收益", "A6052"),
+        ("其他经营费用", "A6053"),
+        ("投资类净收益", "A6054"),
+        ("利息支出", "A6055"),
+        ("租赁利息", "A6056"),
+        ("其他融资成本", "A6057"),
+        ("融资类", "A6058"),
+        ("所得税费用", "A6059"),
+        ("本年净利润", "A6060"),
+    ]
+    metric_codes_by_label: dict[str, list[str]] = {}
+    for label, code in ifrs18_metric_sequence:
+        metric_codes_by_label.setdefault(label, []).append(code)
+
+    for row in worksheet.iter_rows():
+        label_cell = row[4] if len(row) >= 5 else None
+        amount_cell = row[5] if len(row) >= 6 else None
+        label = str(label_cell.value or "").strip() if label_cell is not None else ""
+        metric_queue = metric_codes_by_label.get(label) or []
+        metric_code = metric_queue.pop(0) if metric_queue else ""
+        if not metric_code or amount_cell is None:
+            continue
+        display_value = _app["_format_excel_cell_value"](amount_cell.value, amount_cell.number_format)
+        if not display_value:
+            continue
+        escaped_label = re.escape(html.escape(label))
+        escaped_value = re.escape(html.escape(display_value))
+        trace_url = app_href(
+            nav_mode="view",
+            report_key="amc_group_income_statement",
+            view_report="amc_group_income_statement",
+            trace_metric=metric_code,
+            trace_page="1",
+        )
+        link_html = (
+            f'<a href="{html.escape(trace_url, quote=True)}" target="_blank" rel="noopener" '
+            'style="color:#0f5b8c;font-weight:800;text-decoration:underline;">'
+            f"{html.escape(display_value)}</a>"
+        )
+        row_pattern = (
+            rf"(<tr>.*?<td[^>]*>{escaped_label}</td>"
+            rf"<td[^>]*>)({escaped_value})(</td>.*?</tr>)"
+        )
+        html_text = re.sub(
+            row_pattern,
+            lambda match: f"{match.group(1)}{link_html}{match.group(3)}",
+            html_text,
+            count=1,
+            flags=re.DOTALL,
+        )
+    return html_text
 
 
 def _normalize_note_detail_preview_html(worksheet, html_text: str) -> str:
@@ -2569,6 +2778,287 @@ def render_published_workbook_view(report_key: str, report_config: dict, publish
     render_interbank_deposit_trace_panel(report_key)
 
 
+def _published_entry_has_existing_file(entry: dict) -> bool:
+    path_value = (
+        entry.get("path")
+        or entry.get("file_path")
+        or entry.get("output_path")
+        or entry.get("published_path")
+        or entry.get("workbook_path")
+    )
+    if not path_value:
+        return False
+    workbook_path = Path(str(path_value))
+    if not workbook_path.is_absolute():
+        workbook_path = OUTPUT_DIR / workbook_path
+    return workbook_path.exists()
+
+
+def _report_insight_card_meta(report_key: str, display_name: str) -> tuple[str, str, str]:
+    meta = {
+        "balance_sheet": ("chart", "资产、负债与所有者权益结构及变动情况。", "▣"),
+        "income_statement": ("trend", "收入、成本与利润结构变化趋势。", "↗"),
+        "consolidated_shareholders_equity_statement": ("equity", "合并范围内股东权益变动明细。", "≡"),
+        "amc_group_income_statement": ("building", "AMC集团经营成果与关键指标洞察。", "▥"),
+    }
+    if report_key in meta:
+        return meta[report_key]
+    if "利润" in display_name or "收益" in display_name or "收入" in display_name:
+        return ("trend", "展示经营成果、损益结构及关键变动。", "↗")
+    if "权益" in display_name or "股东" in display_name:
+        return ("equity", "展示权益项目、变动明细及披露信息。", "≡")
+    if "现金" in display_name or "存放" in display_name or "资金" in display_name:
+        return ("cash", "展示资金类报表项目及期间口径信息。", "◍")
+    return ("report", "查看已发布报表及指标追溯信息。", "▦")
+
+
+def render_report_insight_directory(report_types: dict[str, dict]) -> None:
+    card_items = []
+    insight_report_keys = [
+        "balance_sheet",
+        "income_statement",
+        "consolidated_shareholders_equity_statement",
+        "amc_group_income_statement",
+    ]
+    for report_key in insight_report_keys:
+        report_config = report_types.get(report_key)
+        if not report_config:
+            continue
+        entries = _app["published_entries_for_report"](report_key)
+        category = _app["report_category"](report_key)
+        display_name = str(report_config.get("display_name") or report_key)
+        available_entries = [entry for entry in entries if _published_entry_has_existing_file(entry)]
+        latest_entry = available_entries[0] if available_entries else {}
+        skin, description, icon = _report_insight_card_meta(report_key, display_name)
+        institution = str(latest_entry.get("institution") or "集团")
+        period = str(latest_entry.get("period") or _app["current_report_period"]())
+        published = bool(latest_entry)
+        card_items.append(
+            {
+                "report_key": report_key,
+                "display_name": display_name,
+                "category": category,
+                "skin": skin,
+                "description": description,
+                "icon": icon,
+                "institution": institution,
+                "period": period,
+                "published": published,
+            }
+        )
+
+    cards_html = []
+    for item in card_items:
+        href = app_href(nav_mode="view", report_key=item["report_key"], view_report=item["report_key"])
+        button_html = (
+            f'<a class="insight-card-button" href="{html.escape(href)}" target="_self">进入报表 <span>›</span></a>'
+            if item["published"]
+            else '<span class="insight-card-button disabled">未发布</span>'
+        )
+        cards_html.append(
+            f'<article class="insight-card insight-card-{html.escape(item["skin"])}">'
+            f'<div class="insight-card-visual"><span>{html.escape(item["icon"])}</span></div>'
+            f'<div class="insight-card-body">'
+            f'<h3>{html.escape(item["display_name"])}</h3>'
+            f'<div class="insight-card-tags">'
+            f'<span>{html.escape(item["institution"])}</span>'
+            f'<span>{html.escape(item["period"])}</span>'
+            f'</div>'
+            f'<p>{html.escape(item["description"])}</p>'
+            f'{button_html}'
+            f'</div>'
+            f'</article>'
+        )
+
+    empty_html = ""
+    if not any(item["published"] for item in card_items):
+        empty_html = '<div class="insight-empty">暂无已发布报表，请先在 AI报表生成后发布。</div>'
+
+    st.markdown(
+        f"""
+        <style>
+        .insight-page {{
+            padding: .35rem 0 1.2rem;
+        }}
+        .insight-head {{
+            display: flex;
+            justify-content: space-between;
+            gap: 1rem;
+            align-items: flex-start;
+            margin: .25rem 0 1.55rem;
+        }}
+        .insight-title {{
+            margin: 0;
+            color: #0f1f38;
+            font-size: 2rem;
+            line-height: 1.1;
+            font-weight: 950;
+        }}
+        .insight-subtitle {{
+            color: #7a8798;
+            font-size: .95rem;
+            margin-top: .58rem;
+            font-weight: 650;
+        }}
+        .insight-toggle {{
+            display: inline-flex;
+            gap: .25rem;
+            padding: .28rem;
+            border-radius: 16px;
+            border: 1px solid #dbe6f5;
+            background: rgba(255,255,255,.82);
+            box-shadow: 0 12px 32px rgba(31, 84, 145, .08);
+            white-space: nowrap;
+        }}
+        .insight-toggle span {{
+            min-height: 34px;
+            display: inline-flex;
+            align-items: center;
+            gap: .38rem;
+            padding: 0 .82rem;
+            border-radius: 12px;
+            color: #64748b;
+            font-size: .86rem;
+            font-weight: 850;
+        }}
+        .insight-toggle .active {{
+            color: #2563eb;
+            background: #eef5ff;
+            box-shadow: inset 0 0 0 1px #c8dcff;
+        }}
+        .insight-grid {{
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 1rem 1.15rem;
+        }}
+        .insight-card {{
+            min-height: 176px;
+            display: grid;
+            grid-template-columns: 132px minmax(0, 1fr);
+            gap: 1.2rem;
+            align-items: center;
+            padding: 1.32rem 1.5rem;
+            border: 1px solid rgba(200, 214, 232, .78);
+            border-radius: 16px;
+            background:
+                radial-gradient(circle at 92% 18%, rgba(59, 130, 246, .08), transparent 30%),
+                linear-gradient(145deg, rgba(255,255,255,.94), rgba(248,251,255,.86));
+            box-shadow: 0 18px 46px rgba(30, 73, 118, .08);
+        }}
+        .insight-card-visual {{
+            width: 112px;
+            height: 112px;
+            border-radius: 28px;
+            display: grid;
+            place-items: center;
+            background: linear-gradient(180deg, rgba(255,255,255,.9), rgba(234,243,255,.86));
+            box-shadow: inset 0 0 0 1px rgba(196, 213, 239, .9), 0 16px 28px rgba(52, 97, 180, .12);
+        }}
+        .insight-card-visual span {{
+            width: 70px;
+            height: 70px;
+            border-radius: 22px;
+            display: grid;
+            place-items: center;
+            color: #fff;
+            font-size: 2rem;
+            font-weight: 950;
+            background: linear-gradient(145deg, #3b82f6, #7aa2ff);
+        }}
+        .insight-card-trend .insight-card-visual span {{ background: linear-gradient(145deg, #18c6a8, #55d6c8); }}
+        .insight-card-equity .insight-card-visual span {{ background: linear-gradient(145deg, #8b5cf6, #b48cff); }}
+        .insight-card-building .insight-card-visual span {{ background: linear-gradient(145deg, #4f7cff, #83b3ff); }}
+        .insight-card-cash .insight-card-visual span {{ background: linear-gradient(145deg, #0ea5e9, #67d6ff); }}
+        .insight-card-body h3 {{
+            margin: 0 0 .62rem;
+            color: #10213f;
+            font-size: 1.28rem;
+            font-weight: 950;
+            line-height: 1.25;
+        }}
+        .insight-card-tags {{
+            display: flex;
+            gap: .45rem;
+            flex-wrap: wrap;
+            margin-bottom: .72rem;
+        }}
+        .insight-card-tags span {{
+            display: inline-flex;
+            min-height: 28px;
+            align-items: center;
+            padding: 0 .72rem;
+            border-radius: 8px;
+            border: 1px solid #d9e5f5;
+            color: #2563eb;
+            background: #f2f7ff;
+            font-size: .82rem;
+            font-weight: 900;
+        }}
+        .insight-card-tags span + span {{
+            color: #64748b;
+            background: #f8fafc;
+        }}
+        .insight-card-body p {{
+            min-height: 2.4rem;
+            margin: 0 0 1rem;
+            color: #66768c;
+            font-size: .92rem;
+            line-height: 1.55;
+            font-weight: 650;
+        }}
+        .insight-card-button {{
+            width: 126px;
+            min-height: 42px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: .42rem;
+            border-radius: 9px;
+            color: #fff !important;
+            text-decoration: none !important;
+            background: linear-gradient(180deg, #2f73ff, #1459e8);
+            box-shadow: 0 12px 24px rgba(37, 99, 235, .24);
+            font-weight: 900;
+        }}
+        .insight-card-button.disabled {{
+            color: #94a3b8 !important;
+            background: #eef2f7;
+            box-shadow: none;
+        }}
+        .insight-empty {{
+            margin-top: 1rem;
+            padding: 1rem 1.1rem;
+            border-radius: 12px;
+            background: #fff7ed;
+            border: 1px solid #fed7aa;
+            color: #b45309;
+            font-weight: 800;
+        }}
+        @media (max-width: 1100px) {{
+            .insight-grid {{ grid-template-columns: 1fr; }}
+            .insight-head {{ display: block; }}
+            .insight-toggle {{ margin-top: 1rem; }}
+        }}
+        </style>
+        <div class="insight-page">
+          <div class="insight-head">
+            <div>
+              <h1 class="insight-title">报表洞察中心</h1>
+              <div class="insight-subtitle">选择重点报表，快速进入查看与分析。</div>
+            </div>
+            <div class="insight-toggle">
+              <span class="active">▦ 卡片视图</span>
+              <span>☰ 列表视图</span>
+            </div>
+          </div>
+          <div class="insight-grid">{"".join(cards_html)}</div>
+          {empty_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render_view_report_page(*args, **kwargs) -> None:
     access_control = args[0] if len(args) > 0 else None
     report_types = args[1] if len(args) > 1 else _app["load_report_types"](_app["REPORT_CONFIG_PATH"])
@@ -2578,14 +3068,435 @@ def render_view_report_page(*args, **kwargs) -> None:
     if report_key:
         report_config = report_types.get(report_key)
         if report_config:
+            if _query_param_value("trace_page") == "1" and render_amc_metric_trace_page(report_key, report_config):
+                return
             entries = _app["published_entries_for_report"](report_key)
             selected_entry = _published_entry_for_query(entries)
             render_published_workbook_view(report_key, report_config, entries, selected_entry)
             return
-    if _original_render_view_report_page is not None:
-        _original_render_view_report_page(*args, **kwargs)
+    st.session_state.pop("view_directory_selected_key", None)
+    render_report_insight_directory(report_types)
+
+
+def render_amc_metric_trace_panel(report_key: str, report_config: dict) -> None:
+    if report_key != "amc_group_income_statement":
+        return
+    selected_metric = (_query_param_value("trace_metric") or "").strip()
+    if not selected_metric:
+        return
+
+    try:
+        report_df, trace_df = _load_or_build_amc_trace_dataset(report_config)
+    except Exception as exc:  # noqa: BLE001
+        st.warning(f"AMC 指标追溯加载失败：{exc}")
+        return
+    if report_df.empty or trace_df.empty:
+        return
+
+    st.markdown('<div id="amc-trace-panel"></div>', unsafe_allow_html=True)
+    st.session_state["amc_trace_metric"] = selected_metric
+    _render_amc_trace_detail(selected_metric, report_df, trace_df)
+
+
+def render_amc_metric_trace_page(report_key: str, report_config: dict) -> bool:
+    if report_key != "amc_group_income_statement":
+        return False
+    selected_metric = (_query_param_value("trace_metric") or "").strip()
+    if not selected_metric:
+        return False
+
+    try:
+        report_df, trace_df = _load_or_build_amc_trace_dataset(report_config)
+    except Exception as exc:  # noqa: BLE001
+        st.error(f"AMC 指标追溯加载失败：{exc}")
+        return True
+
+    display_name = str(report_config.get("display_name") or "AMC集团经营成果智能视图")
+    metric_rows = report_df[report_df["指标编码"].map(_clean_cell_text).eq(selected_metric)]
+    metric_name = _clean_cell_text(metric_rows.iloc[0].get("指标名称")) if not metric_rows.empty else selected_metric
+    back_href = app_href(
+        nav_mode="view",
+        report_key="amc_group_income_statement",
+        view_report="amc_group_income_statement",
+    )
+    st.markdown(
+        f"""
+        <style>
+        .trace-page-head {{
+            padding: 1.05rem 1.15rem;
+            margin: .2rem 0 1rem;
+            border-radius: 14px;
+            background: linear-gradient(120deg, #eef6ff, #f7fbff);
+            border: 1px solid #dce8f5;
+        }}
+        .trace-page-crumb {{
+            color: #64748b;
+            font-size: .82rem;
+            font-weight: 800;
+            margin-bottom: .45rem;
+        }}
+        .trace-page-title {{
+            color: #10213f;
+            font-size: 1.55rem;
+            line-height: 1.2;
+            font-weight: 950;
+            margin-bottom: .45rem;
+        }}
+        .trace-page-meta {{
+            color: #52657a;
+            font-size: .88rem;
+            line-height: 1.55;
+        }}
+        .trace-page-back {{
+            display: inline-flex;
+            align-items: center;
+            margin-top: .75rem;
+            color: #0f5b8c !important;
+            font-weight: 900;
+            text-decoration: underline !important;
+        }}
+        </style>
+        <div class="trace-page-head">
+          <div class="trace-page-crumb">报表洞察中心 / {html.escape(display_name)} / 指标加工追溯</div>
+          <div class="trace-page-title">{html.escape(selected_metric)} 加工追溯</div>
+          <div class="trace-page-meta">指标名称：{html.escape(metric_name)}</div>
+          <a class="trace-page-back" href="{html.escape(back_href, quote=True)}" target="_self">返回报表视图</a>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    _render_amc_trace_detail(selected_metric, report_df, trace_df)
+    return True
+
+
+def _load_or_build_amc_trace_dataset(report_config: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
+    rule_file = _app["get_primary_rule_file"]()
+    report_types = _app["load_report_types"](_app["REPORT_CONFIG_PATH"])
+    context = {"name": "集团", "period": _app["current_report_period"]()}
+    report_df = _load_current_amc_report_df()
+    if report_df.empty:
+        report_df = build_report_dataset(rule_file, "amc_group_income_statement", report_config, report_types, context)
+    trace_df = build_report_trace_dataset(rule_file, "amc_group_income_statement", report_config, context)
+    output_path = OUTPUT_DIR / "AMC_group_income_statement_generated.xlsx"
+    try:
+        _app["write_report_generation_excel"](report_df, report_config, output_path, trace_df=trace_df)
+    except Exception:
+        pass
+    return report_df, trace_df
+
+
+def _load_current_amc_report_df() -> pd.DataFrame:
+    candidates: list[tuple[Path, str | int]] = [
+        (OUTPUT_DIR / "AMC集团利润表生成结果_中间表.xlsx", 0),
+    ]
+    for entry in _app["published_entries_for_report"]("amc_group_income_statement"):
+        path_value = entry.get("published_path") or entry.get("output_path") or entry.get("resolved_path")
+        if path_value:
+            candidates.append((Path(path_value), "生成数据"))
+    candidates.extend(
+        (path, "生成数据")
+        for path in sorted(
+            OUTPUT_DIR.glob("*AMC*发布版*.xlsx"),
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        )
+    )
+
+    for path, sheet_name in candidates:
+        if not path.is_absolute():
+            path = OUTPUT_DIR / path
+        if not path.exists():
+            continue
+        try:
+            df = pd.read_excel(path, sheet_name=sheet_name, dtype=object, engine="openpyxl")
+        except Exception:
+            continue
+        if df is not None and not df.empty and "指标编码" in df.columns:
+            return df
+    return pd.DataFrame()
+
+
+def _render_amc_trace_amount_links(report_df: pd.DataFrame, selected_metric: str) -> None:
+    rows = []
+    for _, row in report_df.iterrows():
+        metric_code = _clean_cell_text(row.get("指标编码"))
+        metric_name = _clean_cell_text(row.get("指标名称"))
+        amount = row.get("生成金额-集团")
+        if not metric_code.startswith("A6") or pd.isna(amount):
+            continue
+        href = app_href(
+            nav_mode="view",
+            report_key="amc_group_income_statement",
+            view_report="amc_group_income_statement",
+            trace_metric=metric_code,
+            trace_page="1",
+        )
+        active = " active" if metric_code == selected_metric else ""
+        rows.append(
+            "<tr>"
+            f"<td>{html.escape(metric_code)}</td>"
+            f"<td>{html.escape(metric_name)}</td>"
+            f'<td class="amount"><a class="amc-trace-link{active}" href="{html.escape(href)}" target="_blank" rel="noopener">'
+            f"{html.escape(_format_indicator_amount(amount))}</a></td>"
+            "</tr>"
+        )
+
+    table_html = """
+    <style>
+    .amc-trace-table { width: 100%; border-collapse: collapse; margin: 8px 0 18px; }
+    .amc-trace-table th { background: #0f3f36; color: white; padding: 8px 10px; text-align: left; }
+    .amc-trace-table td { border-bottom: 1px solid #d9e2ec; padding: 7px 10px; }
+    .amc-trace-table td.amount { text-align: right; font-variant-numeric: tabular-nums; }
+    .amc-trace-link { color: #0f766e; font-weight: 700; text-decoration: underline; }
+    .amc-trace-link.active { color: #b45309; }
+    </style>
+    <table class="amc-trace-table">
+      <thead><tr><th>指标编码</th><th>指标名称</th><th>生成金额-集团（千元）</th></tr></thead>
+      <tbody>
+    """ + "\n".join(rows) + """
+      </tbody>
+    </table>
+    """
+    st.markdown(table_html, unsafe_allow_html=True)
+
+
+def _render_amc_trace_detail(metric_code: str, report_df: pd.DataFrame, trace_df: pd.DataFrame) -> None:
+    metric_rows = report_df[report_df["指标编码"].map(_clean_cell_text).eq(metric_code)]
+    trace_rows = trace_df[trace_df["指标编码"].map(_clean_cell_text).eq(metric_code)].copy()
+    if metric_rows.empty:
+        st.info(f"未找到 {metric_code} 指标。")
+        return
+    metric = metric_rows.iloc[0]
+
+    st.markdown(f"#### {metric_code} 加工追溯")
+    summary_rows = [
+        {"项目": "指标名称", "内容": _clean_cell_text(metric.get("指标名称"))},
+        {"项目": "报表金额-集团（千元）", "内容": _format_indicator_amount(metric.get("生成金额-集团"))},
+        {"项目": "计算状态", "内容": _clean_cell_text(metric.get("计算状态"))},
+        {"项目": "加工规则", "内容": _clean_cell_text(metric.get("加工规则"))},
+        {"项目": "计算说明", "内容": _clean_cell_text(metric.get("计算说明"))},
+    ]
+    st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+
+    if trace_rows.empty:
+        st.info("该指标没有可展开的 AMC 科目映射明细。")
+        return
+
+    amount_col = "贡献金额-千元"
+    trace_rows[amount_col] = pd.to_numeric(trace_rows[amount_col], errors="coerce").fillna(0.0)
+    source_summary = (
+        trace_rows.groupby(["机构类型", "科目余额表文件", "科目映射表文件", "映射口径列", "目标映射项", "追溯状态"], dropna=False)[amount_col]
+        .sum()
+        .reset_index()
+        .rename(columns={amount_col: "贡献金额合计-千元"})
+    )
+    st.markdown("##### 来源表和规则项汇总")
+    _render_amc_trace_linked_file_table(source_summary)
+
+    detail_columns = [
+        "机构类型",
+        "科目余额表文件",
+        "科目映射表文件",
+        "映射口径列",
+        "目标映射项",
+        "科目编码",
+        "科目名称",
+        "原始余额-元",
+        "规则项符号",
+        "整体尾部乘数",
+        "贡献金额-千元",
+        "追溯状态",
+    ]
+    visible_columns = [column for column in detail_columns if column in trace_rows.columns]
+    st.markdown("##### 具体取数明细")
+    _render_amc_trace_linked_file_table(trace_rows[visible_columns])
+
+    total = float(trace_rows["贡献金额-千元"].sum())
+    report_amount = pd.to_numeric(pd.Series([metric.get("生成金额-集团")]), errors="coerce").fillna(0.0).iloc[0]
+    st.info(
+        f"明细贡献合计 {total:,.6f} 千元；报表金额 {_format_indicator_amount(report_amount)} 千元；"
+        f"差额 {total - float(report_amount):,.6f} 千元。"
+    )
+
+
+def _resolve_amc_trace_file_path(file_name: str, column_name: str = "") -> Path | None:
+    clean_name = _clean_cell_text(file_name)
+    if not clean_name or clean_name.lower() in {"none", "nan", "<na>"}:
+        return None
+    candidate = Path(clean_name)
+    if candidate.is_absolute() and candidate.exists():
+        return candidate
+
+    search_roots = []
+    if column_name == "科目余额表文件":
+        search_roots.extend([UPLOAD_DIR, OUTPUT_DIR / "data_mapping" / "subject_balance_inputs"])
+    elif column_name == "科目映射表文件":
+        search_roots.extend([
+            OUTPUT_DIR / "data_mapping" / "subject_balance_inputs",
+            OUTPUT_DIR / "data_mapping" / "subject_balance_mappings",
+            UPLOAD_DIR,
+        ])
     else:
-        st.info("暂无可查看的已发布报表。")
+        search_roots.extend([UPLOAD_DIR, OUTPUT_DIR, OUTPUT_DIR / "data_mapping" / "subject_balance_inputs"])
+
+    for root in search_roots:
+        path = Path(root) / clean_name
+        if path.exists():
+            return path
+    for root in search_roots:
+        if not Path(root).exists():
+            continue
+        matches = list(Path(root).rglob(clean_name))
+        if matches:
+            return matches[0]
+    return None
+
+
+def _file_url(path: Path) -> str:
+    return path.resolve().as_uri()
+
+
+def _local_file_open_href(path: Path) -> str:
+    try:
+        relative_path = path.resolve().relative_to(BASE_DIR.resolve())
+    except ValueError:
+        relative_path = Path(path.name)
+    params = {
+        "nav_mode": "open_file",
+        "local_file": relative_path.as_posix(),
+    }
+    auth_token = _query_param_value("auth_token") or st.session_state.get("auth_token")
+    if auth_token:
+        params["auth_token"] = str(auth_token)
+    return app_href(**params)
+
+
+def render_open_local_file_page() -> None:
+    raw_path = _query_param_value("local_file")
+    if not raw_path:
+        st.warning("未指定要打开的文件。")
+        return
+
+    candidate = (BASE_DIR / raw_path).resolve()
+    try:
+        candidate.relative_to(BASE_DIR.resolve())
+    except ValueError:
+        st.error("文件路径不在 IFRS 18 工程目录内，已拒绝打开。")
+        return
+
+    st.markdown("### 打开本地文件")
+    st.caption(f"文件路径：{candidate}")
+    if not candidate.exists() or not candidate.is_file():
+        st.error("文件不存在。")
+        return
+
+    if os.environ.get("IFRS18_DOCKER") == "1" or not hasattr(os, "startfile"):
+        st.info("当前运行在 Docker 容器中，无法直接打开客户桌面的 Excel 程序。请下载后查看。")
+        st.download_button(
+            "下载文件",
+            data=candidate.read_bytes(),
+            file_name=candidate.name,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+        return
+
+    try:
+        os.startfile(str(candidate))
+        st.success(f"已打开文件：{candidate.name}")
+    except OSError as exc:
+        st.error(f"打开文件失败：{exc}")
+        return
+
+    back_href = app_href(
+        nav_mode="view",
+        report_key="amc_group_income_statement",
+        view_report="amc_group_income_statement",
+    )
+    st.link_button("返回报表洞察", back_href)
+
+
+def _render_amc_trace_linked_file_table(df: pd.DataFrame) -> None:
+    if df is None or df.empty:
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        return
+
+    file_columns = {"科目余额表文件", "科目映射表文件"}
+    display_df = df.copy().fillna("")
+    columns = list(display_df.columns)
+    header_html = "".join(f"<th>{html.escape(str(column))}</th>" for column in columns)
+    rows_html = []
+    for _, row in display_df.iterrows():
+        cells = []
+        for column in columns:
+            value = _clean_cell_text(row.get(column))
+            if column in file_columns and value:
+                path = _resolve_amc_trace_file_path(value, column)
+                if path:
+                    link = html.escape(_local_file_open_href(path), quote=True)
+                    title = html.escape(str(path), quote=True)
+                    cells.append(
+                        f'<td><a class="trace-file-link" href="{link}" target="_blank" '
+                        f'rel="noopener" title="{title}">{html.escape(value)}</a></td>'
+                    )
+                    continue
+            cells.append(f"<td>{html.escape(value)}</td>")
+        rows_html.append("<tr>" + "".join(cells) + "</tr>")
+
+    st.markdown(
+        """
+        <style>
+        .trace-linked-table-wrap {
+            width: 100%;
+            overflow-x: auto;
+            border: 1px solid #dce8f5;
+            border-radius: 10px;
+            background: #fff;
+            margin: .35rem 0 1rem;
+        }
+        .trace-linked-table {
+            width: 100%;
+            min-width: 980px;
+            border-collapse: collapse;
+            font-size: .86rem;
+        }
+        .trace-linked-table th {
+            position: sticky;
+            top: 0;
+            background: #f8fbff;
+            color: #64748b;
+            font-weight: 900;
+            text-align: left;
+            padding: .55rem .65rem;
+            border-bottom: 1px solid #dce8f5;
+            white-space: nowrap;
+        }
+        .trace-linked-table td {
+            padding: .52rem .65rem;
+            border-bottom: 1px solid #edf2f8;
+            color: #10213f;
+            white-space: nowrap;
+        }
+        .trace-file-link {
+            color: #0f5b8c !important;
+            font-weight: 850;
+            text-decoration: underline !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"""
+        <div class="trace-linked-table-wrap">
+          <table class="trace-linked-table">
+            <thead><tr>{header_html}</tr></thead>
+            <tbody>{"".join(rows_html)}</tbody>
+          </table>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def render_batch_publish_panel(report_types: dict[str, dict], user: dict | None = None) -> None:
@@ -2677,7 +3588,7 @@ def batch_generate_and_publish_reports(entries: list[dict], report_types: dict[s
                 "code": "GROUP" if institution == "集团" else "",
             }
             report_df = build_report_dataset(rule_file, report_key, report_config, report_types, context)
-            _save_batch_generated_outputs(report_df, report_config, institution)
+            _save_batch_generated_outputs(report_df, report_key, report_config, institution)
             template_path = _publish_template_for_entry(report_key, entry)
             if template_path is None:
                 raise FileNotFoundError(f"未找到发布表样：{report_key}")
@@ -2707,10 +3618,20 @@ def batch_generate_and_publish_reports(entries: list[dict], report_types: dict[s
     return results
 
 
-def _save_batch_generated_outputs(report_df: pd.DataFrame, report_config: dict, institution: str) -> None:
+def _save_batch_generated_outputs(report_df: pd.DataFrame, report_key: str, report_config: dict, institution: str) -> None:
     output_file_name = _app["output_name_for_institution"](report_config, "生成版", institution)
     output_path = OUTPUT_DIR / output_file_name
-    _app["write_report_generation_excel"](report_df, report_config, output_path)
+    try:
+        rule_file = _app["get_primary_rule_file"]()
+    except TypeError:
+        rule_file = None
+    trace_df = build_report_trace_dataset(
+        rule_file,
+        report_key,
+        report_config,
+        {"name": institution, "period": _app["current_report_period"]()},
+    )
+    _app["write_report_generation_excel"](report_df, report_config, output_path, trace_df=trace_df)
     intermediate_file_name = _app["output_name_for_institution"](report_config, "生成结果_中间表", institution)
     save_intermediate_df(report_df, intermediate_file_name)
 
@@ -2792,6 +3713,7 @@ def _render_styled_published_workbook_view(
             """,
             unsafe_allow_html=True,
         )
+        render_amc_metric_trace_panel(report_key, report_config)
     finally:
         workbook.close()
     _render_published_workbook_auxiliary_sheets(workbook_path)
@@ -3292,8 +4214,223 @@ _original_render_workflow_home = _app["render_workflow_home"]
 
 
 def render_workflow_home() -> None:
-    _original_render_workflow_home()
-    render_smart_indicator_query()
+    links = {
+        "init": app_href(nav_mode="data_mapping", mapping_section="init"),
+        "files": app_href(nav_mode="make", workflow_step="1"),
+        "rules": app_href(nav_mode="make", workflow_step="2"),
+        "generate": app_href(nav_mode="make", workflow_step="3"),
+        "publish": app_href(nav_mode="make", workflow_step="4"),
+        "view": app_href(nav_mode="view"),
+        "admin": app_href(nav_mode="admin"),
+    }
+    home_html = """
+        <style>
+        .block-container {{ padding-top: 1rem !important; }}
+        .ifrs-home-hero {
+            min-height: 164px;
+            margin: .1rem 0 .85rem;
+            padding: 1.35rem 1.55rem;
+            border-radius: 16px;
+            background:
+                radial-gradient(circle at 82% 42%, rgba(61, 220, 174, .34), transparent 24%),
+                radial-gradient(circle at 70% 18%, rgba(73, 153, 255, .28), transparent 20%),
+                linear-gradient(115deg, #0b56d8 0%, #0758b4 44%, #1aa778 100%);
+            color: #ffffff;
+            box-shadow: 0 18px 42px rgba(28, 88, 170, .20);
+            overflow: hidden;
+            position: relative;
+        }
+        .ifrs-home-hero::before {
+            content: "IFRS 18";
+            position: absolute;
+            right: 1.6rem;
+            bottom: 1rem;
+            font-size: 4.4rem;
+            font-weight: 950;
+            color: rgba(255, 255, 255, .13);
+            letter-spacing: -.05em;
+        }
+        .ifrs-home-kicker {
+            display: inline-flex;
+            align-items: center;
+            padding: .24rem .62rem;
+            border-radius: 999px;
+            background: rgba(255,255,255,.16);
+            border: 1px solid rgba(255,255,255,.20);
+            font-size: .78rem;
+            font-weight: 900;
+            margin-bottom: .62rem;
+        }
+        .ifrs-home-title {
+            position: relative;
+            z-index: 1;
+            font-size: 2.15rem;
+            line-height: 1.1;
+            font-weight: 950;
+            margin: 0 0 .5rem;
+        }
+        .ifrs-home-subtitle {
+            position: relative;
+            z-index: 1;
+            max-width: 720px;
+            color: rgba(255,255,255,.88);
+            font-size: .92rem;
+            line-height: 1.65;
+        }
+        .ifrs-flow-panel,
+        .ifrs-home-panel {
+            border: 1px solid #e2ebf6;
+            border-radius: 14px;
+            background: rgba(255,255,255,.96);
+            box-shadow: 0 12px 30px rgba(30, 64, 120, .08);
+        }
+        .ifrs-flow-panel { padding: 1rem; margin-bottom: .85rem; }
+        .ifrs-panel-title {
+            color: #10213f;
+            font-size: 1rem;
+            font-weight: 950;
+            margin: 0 0 .85rem;
+        }
+        .ifrs-flow-grid {
+            display: grid;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            gap: .75rem;
+        }
+        .ifrs-step-card {
+            position: relative;
+            min-height: 150px;
+            padding: .85rem .85rem .9rem;
+            border-radius: 13px;
+            border: 1px solid #dce8f5;
+            background: linear-gradient(180deg, #fff, #f8fbff);
+            text-decoration: none !important;
+            box-shadow: 0 8px 20px rgba(28, 88, 170, .06);
+        }
+        .ifrs-step-no {
+            width: 23px;
+            height: 23px;
+            border-radius: 50%;
+            display: grid;
+            place-items: center;
+            color: #fff;
+            font-size: .72rem;
+            font-weight: 950;
+            background: #1f7cff;
+        }
+        .ifrs-step-icon {
+            height: 46px;
+            display: grid;
+            place-items: center;
+            color: #1f7cff;
+            font-size: 2rem;
+            font-weight: 950;
+        }
+        .ifrs-step-title {
+            color: #0f4ca4;
+            font-size: .92rem;
+            font-weight: 950;
+            text-align: center;
+            margin-bottom: .32rem;
+        }
+        .ifrs-step-desc {
+            color: #64748b;
+            font-size: .72rem;
+            line-height: 1.5;
+            min-height: 2.2rem;
+            text-align: center;
+        }
+        .ifrs-step-btn {
+            margin-top: .55rem;
+            min-height: 27px;
+            border-radius: 999px;
+            display: grid;
+            place-items: center;
+            color: #fff;
+            background: linear-gradient(90deg, #1f7cff, #13b7d7);
+            font-size: .72rem;
+            font-weight: 900;
+        }
+        .ifrs-bottom-grid {
+            display: grid;
+            grid-template-columns: 1.1fr .9fr .9fr;
+            gap: .85rem;
+        }
+        .ifrs-home-panel { padding: .95rem; min-height: 132px; }
+        .ifrs-guide-flow {
+            display: flex;
+            gap: .42rem;
+            align-items: center;
+            color: #2563eb;
+            font-weight: 900;
+            margin: .6rem 0;
+        }
+        .ifrs-shortcut-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: .5rem;
+        }
+        .ifrs-shortcut {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            min-height: 42px;
+            padding: 0 .65rem;
+            border-radius: 10px;
+            background: #f8fbff;
+            border: 1px solid #e0eaf6;
+            color: #10213f !important;
+            text-decoration: none !important;
+            font-size: .78rem;
+            font-weight: 900;
+        }
+        .ifrs-recent-list {
+            display: grid;
+            gap: .45rem;
+            color: #52657a;
+            font-size: .76rem;
+        }
+        .ifrs-recent-list div {
+            display: flex;
+            justify-content: space-between;
+            gap: .5rem;
+        }
+        @media (max-width: 1100px) {
+            .ifrs-flow-grid, .ifrs-bottom-grid { grid-template-columns: 1fr; }
+            .ifrs-home-title { font-size: 1.55rem; }
+        }
+        </style>
+        <div class="ifrs-home-hero">
+          <div class="ifrs-home-kicker">IFRS 18</div>
+          <div class="ifrs-home-title">IFRS 18 报表列报规则切换平台</div>
+          <div class="ifrs-home-subtitle">一站式 IFRS 18 报表规则管理与自动化生成平台，支持规则初始化、数据接入、规则编排、AI报表生成、报表发布与洞察分析全流程管理。</div>
+        </div>
+        <div class="ifrs-flow-panel">
+          <div class="ifrs-panel-title">5 步完成 IFRS 18 报表全流程</div>
+          <div class="ifrs-flow-grid">
+            <a class="ifrs-step-card" href="__INIT_LINK__" target="_self"><div class="ifrs-step-no">1</div><div class="ifrs-step-icon">●</div><div class="ifrs-step-title">IFRS规则初始化</div><div class="ifrs-step-desc">初始化 IFRS 18 报表规则和口径映射配置。</div><div class="ifrs-step-btn">进入页面</div></a>
+            <a class="ifrs-step-card" href="__FILES_LINK__" target="_self"><div class="ifrs-step-no">2</div><div class="ifrs-step-icon">↑</div><div class="ifrs-step-title">数据接入中心</div><div class="ifrs-step-desc">接入 301-304 四类科目表 Demo 文件。</div><div class="ifrs-step-btn">进入页面</div></a>
+            <a class="ifrs-step-card" href="__RULES_LINK__" target="_self"><div class="ifrs-step-no">3</div><div class="ifrs-step-icon">▣</div><div class="ifrs-step-title">规则编排中心</div><div class="ifrs-step-desc">编排映射、计算和披露相关规则文件。</div><div class="ifrs-step-btn">进入页面</div></a>
+            <a class="ifrs-step-card" href="__GENERATE_LINK__" target="_self"><div class="ifrs-step-no">4</div><div class="ifrs-step-icon">▥</div><div class="ifrs-step-title">AI报表生成</div><div class="ifrs-step-desc">执行规则校验与计算，自动生成 IFRS 18 报表。</div><div class="ifrs-step-btn">进入页面</div></a>
+            <a class="ifrs-step-card" href="__PUBLISH_LINK__" target="_self"><div class="ifrs-step-no">5</div><div class="ifrs-step-icon">➤</div><div class="ifrs-step-title">报表发布</div><div class="ifrs-step-desc">审核报表结果并发布到洞察中心。</div><div class="ifrs-step-btn">进入页面</div></a>
+          </div>
+        </div>
+        <div class="ifrs-bottom-grid">
+          <div class="ifrs-home-panel"><div class="ifrs-panel-title">使用指引</div><div class="ifrs-guide-flow">初始化 → 数据接入 → 规则编排 → AI报表生成 → 报表发布</div><div class="ifrs-step-desc" style="text-align:left;">建议按流程完成以上步骤，确保报表数据准确、合规、可追溯。</div></div>
+          <div class="ifrs-home-panel"><div class="ifrs-panel-title">常用入口</div><div class="ifrs-shortcut-grid"><a class="ifrs-shortcut" href="__VIEW_LINK__" target="_self">报表洞察 <span>›</span></a><a class="ifrs-shortcut" href="__FILES_LINK__" target="_self">数据接入 <span>›</span></a><a class="ifrs-shortcut" href="__GENERATE_LINK__" target="_self">报表生成 <span>›</span></a><a class="ifrs-shortcut" href="__PUBLISH_LINK__" target="_self">报表发布 <span>›</span></a></div></div>
+          <div class="ifrs-home-panel"><div class="ifrs-panel-title">最近操作</div><div class="ifrs-recent-list"><div><span>AI报表生成：IFRS 18 Demo</span><span>今天</span></div><div><span>数据接入：301-304科目表</span><span>今天</span></div><div><span>规则编排：映射规则</span><span>昨天</span></div></div></div>
+        </div>
+        """
+    for token, value in {
+        "__INIT_LINK__": links["init"],
+        "__FILES_LINK__": links["files"],
+        "__RULES_LINK__": links["rules"],
+        "__GENERATE_LINK__": links["generate"],
+        "__PUBLISH_LINK__": links["publish"],
+        "__VIEW_LINK__": links["view"],
+        "__ADMIN_LINK__": links["admin"],
+    }.items():
+        home_html = home_html.replace(token, value)
+    st.markdown(home_html, unsafe_allow_html=True)
 
 
 _original_render_permission_assignment_page = _app["render_permission_assignment_page"]
@@ -3424,7 +4561,7 @@ def _run_with_upload_legacy_header_hidden(callback) -> None:
 
 
 def main() -> None:
-    st.set_page_config(page_title="财报智控平台", layout="wide", initial_sidebar_state="expanded")
+    st.set_page_config(page_title="IFRS 18报表规则转换平台", layout="wide", initial_sidebar_state="expanded")
     access_control = _app["load_access_control"]()
     if not is_authenticated(access_control):
         render_login_page(access_control)
@@ -3504,6 +4641,10 @@ def build_report_dataset(rule_file_path, report_key, report_config, report_types
         from engine.loans_advances_guarantee_report import build_loans_advances_guarantee_6_2_report
 
         return build_loans_advances_guarantee_6_2_report(UPLOAD_DIR, report_config, institution_context, rule_file_path)
+    if report_key == "loans_advances_overdue_guarantee_6_4":
+        from engine.loans_advances_overdue_guarantee_report import build_loans_advances_overdue_guarantee_6_4_report
+
+        return build_loans_advances_overdue_guarantee_6_4_report(UPLOAD_DIR, report_config, institution_context, rule_file_path)
     report_df = _original_build_report_dataset(rule_file_path, report_key, report_config, report_types, institution_context)
     if report_key == "asset_impairment_provision":
         report_df = _apply_asset_impairment_abs_overrides(report_df)
@@ -3524,6 +4665,21 @@ def build_report_dataset(rule_file_path, report_key, report_config, report_types
 
         report_df = apply_loans_advances_industry_amounts(report_df, UPLOAD_DIR)
     return report_df
+
+
+def build_report_trace_dataset(rule_file_path, report_key, report_config, institution_context=None) -> pd.DataFrame:
+    if report_key != "amc_group_income_statement":
+        return pd.DataFrame()
+    if not rule_file_path:
+        return pd.DataFrame()
+    from engine.rule_calculator import RuleCalculator
+    from engine.rule_parser import find_report_rules
+
+    rules_df = find_report_rules(rule_file_path, str(report_config.get("rule_keyword") or ""))
+    if rules_df.empty:
+        return pd.DataFrame()
+    period = str((institution_context or {}).get("period") or _app["current_report_period"]())
+    return RuleCalculator(UPLOAD_DIR, report_period=period).build_amc_mapping_trace(rules_df)
 
 
 def _apply_financial_summary_disclosure_values(report_df):
@@ -4627,7 +5783,53 @@ def render_publish_template_uploader(report_key: str, report_config: dict):
 
     if report_key != "other_equity_instruments_27_2":
         render_ai_output_template_dir_shortcut(f"open_ai_output_template_dir_{report_key}")
-        return _original_render_publish_template_uploader(report_key, report_config)
+        st.markdown("#### 发布表样")
+        st.markdown(
+            """
+            <style>
+            [data-testid="stFileUploader"] button p {
+                font-size: 0 !important;
+            }
+            [data-testid="stFileUploader"] button p::after {
+                content: "选择文件";
+                font-size: 0.92rem !important;
+                font-weight: 800 !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+        existing_path = _app["find_publish_template_file"](report_key)
+        if existing_path and Path(existing_path).exists():
+            st.success(f"当前发布表样：{Path(existing_path).name}")
+            st.caption(f"保存位置：{Path(existing_path)}")
+        else:
+            st.info("当前没有已保存的发布表样。请选择 Excel 表样文件，选择后会自动保存。")
+
+        uploaded_template = st.file_uploader(
+            "上传或替换发布表样",
+            type=["xlsx", "xlsm"],
+            key=f"publish_template_upload_direct_{report_key}",
+            help="选择文件后会立即保存为当前报表的发布表样。",
+        )
+        if uploaded_template is not None:
+            suffix = Path(str(uploaded_template.name)).suffix.lower()
+            if suffix not in {".xlsx", ".xlsm"}:
+                st.error("发布表样文件必须是 .xlsx 或 .xlsm 格式。")
+                return existing_path
+            template_dir = _app["TEMPLATE_UPLOAD_DIR"] / "published"
+            template_dir.mkdir(parents=True, exist_ok=True)
+            template_path = template_dir / f"{report_key}_publish_report_template{suffix}"
+            upload_bytes = uploaded_template.getvalue()
+            template_path.write_bytes(upload_bytes)
+            st.session_state[f"publish_template_saved_path_{report_key}"] = str(template_path)
+            st.success(f"发布表样已保存：{template_path.name}")
+            return template_path
+
+        saved_path = st.session_state.get(f"publish_template_saved_path_{report_key}")
+        if saved_path and Path(str(saved_path)).exists():
+            return Path(str(saved_path))
+        return existing_path
 
     st.markdown("#### 发布表样")
     try:
@@ -4661,6 +5863,7 @@ def publish_report(report_key: str, report_config: dict, report_df: pd.DataFrame
             "institution": institution,
             "template_path": str(template),
             "published_path": str(published_path),
+            "published_at": datetime.now().isoformat(timespec="seconds"),
         }
         published = [
             item
@@ -4709,6 +5912,7 @@ def publish_report(report_key: str, report_config: dict, report_df: pd.DataFrame
         "institution": institution,
         "template_path": str(template_path),
         "published_path": str(published_path),
+        "published_at": datetime.now().isoformat(timespec="seconds"),
     }
     published = [
         item
@@ -5138,7 +6342,8 @@ def render_report_generation_action(
             institution_label = str(context.get("name") or context.get("scope") or "集团")
             output_file_name = _app["output_name_for_institution"](report_config, "生成版", institution_label)
             output_path = OUTPUT_DIR / output_file_name
-            _app["write_report_generation_excel"](report_df, report_config, output_path)
+            trace_df = build_report_trace_dataset(rule_file, report_key, report_config, context)
+            _app["write_report_generation_excel"](report_df, report_config, output_path, trace_df=trace_df)
             intermediate_file_name = _app["output_name_for_institution"](report_config, "生成结果_中间表", institution_label)
             save_intermediate_df(report_df, intermediate_file_name)
         elapsed = time.perf_counter() - started_at
@@ -6107,7 +7312,6 @@ def _nav_mode() -> str:
         "make": "make_report",
         "view": "view_report",
         "publish": "publish_report",
-        "deliver": "delivery",
     }
     current = aliases.get(str(current), str(current))
     return str(current or "home")
@@ -6118,6 +7322,7 @@ def _report_nav_label(report_key: str, report_config: dict) -> str:
         "balance_sheet": "资产负债智能视图",
         "consolidated_shareholders_equity_statement": "权益变动智能视图",
         "income_statement": "经营结果视图",
+        "amc_group_income_statement": "AMC经营结果视图",
     }
     return labels.get(report_key, str(report_config.get("display_name") or report_key))
 
@@ -6127,14 +7332,1524 @@ def _workflow_step() -> str | None:
     return str(step) if step else None
 
 
+def _published_entry_from_publish_result(result, report_key: str, report_config: dict) -> dict:
+    if isinstance(result, dict):
+        return result
+
+    published_path = Path(result)
+    for entry in _app["load_published_reports"]():
+        if str(entry.get("published_path") or "") == str(published_path):
+            return entry
+
+    return {
+        "report_key": report_key,
+        "display_name": report_config.get("display_name", report_key),
+        "category": _app["report_category"](report_key),
+        "period": _app["current_report_period"](),
+        "institution": "集团",
+        "published_path": str(published_path),
+    }
+
+
+def _go_to_report_insight(report_key: str, entry: dict) -> None:
+    auth_token = _query_param_value("auth_token")
+    st.query_params.clear()
+    st.query_params["nav_mode"] = "view"
+    if auth_token:
+        st.query_params["auth_token"] = auth_token
+    st.rerun()
+
+
+def render_publish_report_step(report_options, report_types) -> None:
+    st.subheader("发布报表")
+    st.caption("将当前生成版发布到报表洞察中心，发布成功后自动进入报表洞察中心目录。")
+
+    report_key, report_config = render_report_type_selector(report_options, report_types)
+    if not report_key or not report_config:
+        return
+
+    try:
+        report_df = _app["load_latest_report_df_for_publish"](report_config)
+    except Exception as exc:  # noqa: BLE001
+        st.error(f"读取当前生成版失败：{exc}")
+        return
+
+    if report_df is None or getattr(report_df, "empty", True):
+        st.warning("请先在“生成报表”步骤生成报表，再发布到报表洞察中心。")
+        return
+
+    display_name = str(report_config.get("display_name") or report_key)
+    st.success(f"已找到当前生成版：{display_name}，共 {len(report_df)} 行。")
+    st.dataframe(report_df.head(80), use_container_width=True, hide_index=True)
+
+    template_path = render_publish_template_uploader(report_key, report_config)
+    if not template_path:
+        st.warning("请先上传或选择发布表样，再发布到报表洞察中心。")
+        return
+
+    if st.button("发布到报表洞察中心", type="primary", use_container_width=True, key=f"publish_to_insight_{report_key}"):
+        try:
+            with st.spinner("正在发布到报表洞察中心..."):
+                result = publish_report(report_key, report_config, report_df, Path(template_path))
+                entry = _published_entry_from_publish_result(result, report_key, report_config)
+            st.session_state["publish_to_insight_message"] = f"已发布：{entry.get('published_path')}"
+            _go_to_report_insight(report_key, entry)
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"发布失败：{exc}")
+
+
 def _legacy_nav_mode(current: str) -> str:
     if current == "make_report":
         return "make"
     if current in {"view_report", "publish_report"}:
         return "view"
-    if current == "delivery":
-        return "delivery"
+    if current == "data_mapping":
+        return "data_mapping"
     return current
+
+
+def _mapping_section() -> str:
+    section = _query_param_value("mapping_section") or "init"
+    if section not in {"init", "consolidation", "subject_mapping", "subject_mapping_result"}:
+        return "init"
+    return str(section)
+
+
+def _uploaded_file_status(prefixes: list[str]) -> str:
+    for prefix in prefixes:
+        if _find_upload_file_by_prefix(prefix) is not None:
+            return "已上传"
+    return "未上传"
+
+
+def _consolidation_requirement_profiles() -> dict[str, str]:
+    return {
+        "mof": "财政部填报口径",
+        "ifrs18": "IFRS 18年报合并口径",
+    }
+
+
+def _active_consolidation_requirement_profile_key() -> str:
+    profile_key = str(st.session_state.get("consolidation_requirement_profile", "mof"))
+    return profile_key if profile_key in _consolidation_requirement_profiles() else "mof"
+
+
+def _consolidation_requirement_path(profile_key: str | None = None) -> Path:
+    profile_key = profile_key or _active_consolidation_requirement_profile_key()
+    if profile_key == "mof":
+        return OUTPUT_DIR / "data_mapping" / "财政部要求.xlsx"
+    file_names = {
+        "ifrs18": "IFRS18年报合并口径要求.xlsx",
+    }
+    return OUTPUT_DIR / "data_mapping" / file_names.get(profile_key, "财政部要求.xlsx")
+
+
+def _consolidation_requirement_columns() -> list[str]:
+    return ["金融控股集团类", "银行类", "证券类", "保险类", "担保类", "资产公司", "企业公司"]
+
+
+def _read_consolidation_requirement_excel(path_or_buffer) -> pd.DataFrame:
+    raw_df = pd.read_excel(path_or_buffer, sheet_name=0, header=None, dtype=object, engine="openpyxl")
+    raw_df = raw_df.dropna(how="all").copy()
+    if raw_df.empty:
+        return pd.DataFrame(columns=["序号", *_consolidation_requirement_columns()])
+
+    expected_columns = _consolidation_requirement_columns()
+    header_row_index = _detect_consolidation_requirement_header_row(raw_df, expected_columns)
+    first_row_values = {str(value).strip() for value in raw_df.iloc[0].tolist() if value is not None and str(value).strip()}
+    if "序号" in first_row_values and any(column in first_row_values for column in expected_columns):
+        header_row_index = 0
+    header_values = raw_df.iloc[header_row_index].tolist()
+    data = raw_df.iloc[header_row_index + 1 :].copy()
+    data.columns = [
+        _clean_mapping_cell(value) if _clean_mapping_cell(value) else f"字段{index + 1}"
+        for index, value in enumerate(header_values)
+    ]
+    df = data
+    df = df.dropna(how="all").copy()
+    df = df.fillna("").map(_clean_mapping_cell)
+    parsed = pd.DataFrame()
+    if "序号" in df.columns:
+        df = df.drop(columns=["序号"])
+    for column in expected_columns:
+        matched_column = _find_mapping_column(df.columns, column)
+        parsed[column] = df[matched_column] if matched_column is not None else ""
+
+    parsed = _drop_empty_mapping_rows(parsed, expected_columns)
+    if parsed.empty:
+        parsed = _parse_consolidation_requirement_by_position(raw_df, header_row_index, expected_columns)
+
+    parsed.insert(0, "序号", range(1, len(parsed) + 1))
+    return parsed[["序号", *expected_columns]]
+
+
+def _clean_mapping_cell(value) -> str:
+    if value is None or pd.isna(value):
+        return ""
+    text = str(value).replace("\xa0", " ").strip()
+    return "" if text.lower() in {"nan", "none"} else text
+
+
+def _find_mapping_column(columns, expected: str) -> str | None:
+    expected_text = _compact_mapping_text(expected)
+    for column in columns:
+        column_text = _compact_mapping_text(column)
+        if column_text == expected_text:
+            return column
+    for column in columns:
+        column_text = _compact_mapping_text(column)
+        if expected_text in column_text or column_text in expected_text:
+            return column
+    return None
+
+
+def _compact_mapping_text(value) -> str:
+    return re.sub(r"\s+", "", str(value or "")).lower()
+
+
+def _drop_empty_mapping_rows(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    if df.empty:
+        return df
+    return df[df[columns].astype(str).apply(lambda row: any(value.strip() for value in row), axis=1)].copy()
+
+
+def _parse_consolidation_requirement_by_position(
+    raw_df: pd.DataFrame,
+    header_row_index: int,
+    expected_columns: list[str],
+) -> pd.DataFrame:
+    header_values = [_clean_mapping_cell(value) for value in raw_df.iloc[header_row_index].tolist()]
+    positions = [
+        index
+        for index, value in enumerate(header_values)
+        if value and value != "序号" and not value.lower().startswith("subject:")
+    ]
+    if len(positions) < len(expected_columns):
+        positions = list(range(min(len(expected_columns), raw_df.shape[1])))
+    positions = positions[: len(expected_columns)]
+    data = raw_df.iloc[header_row_index + 1 :, positions].copy()
+    data.columns = expected_columns[: len(positions)]
+    for column in expected_columns:
+        if column not in data.columns:
+            data[column] = ""
+    data = data.fillna("").map(_clean_mapping_cell)
+    return _drop_empty_mapping_rows(data[expected_columns], expected_columns)
+
+
+def _detect_consolidation_requirement_header_row(raw_df: pd.DataFrame, expected_columns: list[str]) -> int:
+    best_index = 0
+    best_score = -1
+    for row_index, row in raw_df.iterrows():
+        values = {str(value).strip() for value in row.tolist() if value is not None and str(value).strip()}
+        score = sum(1 for column in expected_columns if column in values)
+        if score > best_score:
+            best_score = score
+            best_index = int(row_index)
+    return best_index
+
+
+def _save_consolidation_requirement_excel(df: pd.DataFrame, profile_key: str | None = None) -> Path:
+    output_path = _consolidation_requirement_path(profile_key)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    cleaned = _normalize_consolidation_requirement_df(df)
+    cleaned.to_excel(output_path, index=False, sheet_name="财政部要求")
+    return output_path
+
+
+def _normalize_consolidation_requirement_df(df: pd.DataFrame) -> pd.DataFrame:
+    expected_columns = _consolidation_requirement_columns()
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["序号", *expected_columns])
+    cleaned = df.copy().fillna("")
+    for column in expected_columns:
+        if column not in cleaned.columns:
+            cleaned[column] = ""
+    cleaned = cleaned[expected_columns].map(_clean_mapping_cell)
+    cleaned = _drop_empty_mapping_rows(cleaned, expected_columns)
+    cleaned.insert(0, "序号", range(1, len(cleaned) + 1))
+    return cleaned[["序号", *expected_columns]]
+
+
+def _subject_mapping_institution_columns() -> list[str]:
+    return ["银行类", "证券类", "保险类", "担保类", "资产公司", "企业公司"]
+
+
+def _active_subject_mapping_institution_columns(requirement_df: pd.DataFrame) -> list[str]:
+    active_columns: list[str] = []
+    for column in _subject_mapping_institution_columns():
+        if column not in requirement_df.columns:
+            continue
+        values = requirement_df[column].map(_clean_mapping_cell)
+        if bool((values != "").any()):
+            active_columns.append(column)
+    return active_columns
+
+
+def _visible_consolidation_requirement_columns(requirement_df: pd.DataFrame) -> list[str]:
+    if requirement_df is None or requirement_df.empty:
+        return ["序号", *_consolidation_requirement_columns()]
+    visible_columns = ["序号"]
+    for column in _consolidation_requirement_columns():
+        if column == "金融控股集团类":
+            visible_columns.append(column)
+            continue
+        if column not in requirement_df.columns:
+            continue
+        values = requirement_df[column].map(_clean_mapping_cell)
+        if bool((values != "").any()):
+            visible_columns.append(column)
+    return visible_columns
+
+
+def _subject_mapping_input_dir() -> Path:
+    return OUTPUT_DIR / "data_mapping" / "subject_balance_inputs"
+
+
+def _subject_mapping_output_dir() -> Path:
+    return OUTPUT_DIR / "data_mapping" / "subject_balance_mappings"
+
+
+def _safe_mapping_file_stem(value: str) -> str:
+    text = re.sub(r"[\\/:*?\"<>|]+", "_", str(value or "").strip())
+    return text or "未命名"
+
+
+def _subject_table_input_path(institution_type: str) -> Path:
+    return _subject_mapping_input_dir() / f"{_safe_mapping_file_stem(institution_type)}_科目表.xlsx"
+
+
+def _legacy_subject_balance_input_path(institution_type: str) -> Path:
+    return _subject_mapping_input_dir() / f"{_safe_mapping_file_stem(institution_type)}_科目余额表.xlsx"
+
+
+def _subject_balance_input_path(institution_type: str) -> Path:
+    current_path = _subject_table_input_path(institution_type)
+    legacy_path = _legacy_subject_balance_input_path(institution_type)
+    if current_path.exists() or not legacy_path.exists():
+        return current_path
+    return legacy_path
+
+
+def _subject_mapping_output_path(institution_type: str, profile_key: str | None = None) -> Path:
+    profile_key = profile_key or _active_consolidation_requirement_profile_key()
+    profile_label = _consolidation_requirement_profiles().get(profile_key, "")
+    suffix = "" if profile_key == "mof" else f"_{_safe_mapping_file_stem(profile_label)}"
+    return _subject_mapping_output_dir() / f"{_safe_mapping_file_stem(institution_type)}{suffix}_映射表.xlsx"
+
+
+def _subject_mapping_combined_output_path(institution_type: str) -> Path:
+    return _subject_mapping_output_dir() / f"{_safe_mapping_file_stem(institution_type)}_three_profile_mapping.xlsx"
+
+
+def _subject_mapping_diff_output_path(institution_type: str) -> Path:
+    return _subject_mapping_output_dir() / f"{_safe_mapping_file_stem(institution_type)}_mapping_diff.xlsx"
+
+
+def _subject_group_mapping_output_path(institution_type: str) -> Path:
+    return _subject_mapping_output_dir() / f"{_safe_mapping_file_stem(institution_type)}_group_mapping.xlsx"
+
+
+def _clean_subject_mapping_code(value) -> str:
+    if value is None or pd.isna(value):
+        return ""
+    text = str(value).replace("\xa0", " ").strip()
+    text = re.sub(r"\.0$", "", text)
+    text = re.sub(r"\s+", "", text)
+    return text if text.lower() not in {"nan", "none"} else ""
+
+
+def _numeric_subject_mapping_series(series: pd.Series | None, index: pd.Index) -> pd.Series:
+    if series is None:
+        return pd.Series(0.0, index=index)
+    return pd.to_numeric(series, errors="coerce").fillna(0.0)
+
+
+def _find_subject_mapping_header_column(columns: list[str], include: list[str], exclude: list[str] | None = None) -> str | None:
+    exclude = exclude or []
+    for column in columns:
+        text = _compact_mapping_text(column)
+        if all(token in text for token in include) and not any(token in text for token in exclude):
+            return column
+    return None
+
+
+def _load_subject_balance_for_mapping(path: Path) -> pd.DataFrame:
+    raw_df = pd.read_excel(path, sheet_name=0, header=None, dtype=object, engine="openpyxl")
+    if raw_df.dropna(how="all").empty:
+        return pd.DataFrame()
+
+    standard_df = _parse_standard_subject_balance_for_mapping(raw_df)
+    if not standard_df.empty:
+        return standard_df
+    return _parse_header_subject_balance_for_mapping(raw_df.dropna(how="all").copy())
+
+
+def _parse_standard_subject_balance_for_mapping(raw_df: pd.DataFrame) -> pd.DataFrame:
+    if raw_df.shape[0] <= 10 or raw_df.shape[1] <= 9:
+        return pd.DataFrame()
+    data_df = raw_df.iloc[10:].copy().dropna(how="all")
+    if data_df.empty:
+        return pd.DataFrame()
+    subject_df = pd.DataFrame(
+        {
+            "institution_code": data_df.iloc[:, 0].map(_clean_subject_mapping_code),
+            "account_code": data_df.iloc[:, 2].map(_clean_subject_mapping_code),
+            "account_name": data_df.iloc[:, 3].map(_clean_mapping_cell) if raw_df.shape[1] > 3 else "",
+            "opening_debit": _numeric_subject_mapping_series(data_df.iloc[:, 4], data_df.index),
+            "opening_credit": _numeric_subject_mapping_series(data_df.iloc[:, 5], data_df.index),
+            "period_debit": _numeric_subject_mapping_series(data_df.iloc[:, 6], data_df.index),
+            "period_credit": _numeric_subject_mapping_series(data_df.iloc[:, 7], data_df.index),
+            "ending_debit": _numeric_subject_mapping_series(data_df.iloc[:, 8], data_df.index),
+            "ending_credit": _numeric_subject_mapping_series(data_df.iloc[:, 9], data_df.index),
+        }
+    )
+    subject_df = _add_subject_mapping_level_codes(subject_df)
+    return subject_df.loc[subject_df["account_code"].str.match(r"^\d{4,12}$", na=False)].copy()
+
+
+def _parse_header_subject_balance_for_mapping(raw_df: pd.DataFrame) -> pd.DataFrame:
+    for header_index in range(min(20, len(raw_df))):
+        header_values = [_clean_mapping_cell(value) or f"字段{idx + 1}" for idx, value in enumerate(raw_df.iloc[header_index].tolist())]
+        columns = [str(value) for value in header_values]
+        account_column = (
+            _find_subject_mapping_header_column(columns, ["科目", "号"])
+            or _find_subject_mapping_header_column(columns, ["科目", "代码"])
+            or _find_subject_mapping_header_column(columns, ["账号"])
+        )
+        ending_debit_column = _find_subject_mapping_header_column(columns, ["期末", "借"])
+        ending_credit_column = _find_subject_mapping_header_column(columns, ["期末", "贷"])
+        if not account_column or not ending_debit_column or not ending_credit_column:
+            continue
+        data_df = raw_df.iloc[header_index + 1 :].copy().dropna(how="all")
+        data_df.columns = columns
+        name_column = _find_subject_mapping_header_column(columns, ["科目", "名称"]) or _find_subject_mapping_header_column(columns, ["名称"])
+        opening_debit_column = _find_subject_mapping_header_column(columns, ["期初", "借"])
+        opening_credit_column = _find_subject_mapping_header_column(columns, ["期初", "贷"])
+        period_debit_column = _find_subject_mapping_header_column(columns, ["发生", "借"])
+        period_credit_column = _find_subject_mapping_header_column(columns, ["发生", "贷"])
+        subject_df = pd.DataFrame(
+            {
+                "institution_code": "",
+                "account_code": data_df[account_column].map(_clean_subject_mapping_code),
+                "account_name": data_df[name_column].map(_clean_mapping_cell) if name_column else "",
+                "opening_debit": _numeric_subject_mapping_series(data_df.get(opening_debit_column), data_df.index),
+                "opening_credit": _numeric_subject_mapping_series(data_df.get(opening_credit_column), data_df.index),
+                "period_debit": _numeric_subject_mapping_series(data_df.get(period_debit_column), data_df.index),
+                "period_credit": _numeric_subject_mapping_series(data_df.get(period_credit_column), data_df.index),
+                "ending_debit": _numeric_subject_mapping_series(data_df[ending_debit_column], data_df.index),
+                "ending_credit": _numeric_subject_mapping_series(data_df[ending_credit_column], data_df.index),
+            }
+        )
+        subject_df = _add_subject_mapping_level_codes(subject_df)
+        subject_df = subject_df.loc[subject_df["account_code"].str.match(r"^\d{4,12}$", na=False)].copy()
+        if not subject_df.empty:
+            return subject_df
+    return pd.DataFrame()
+
+
+def _add_subject_mapping_level_codes(subject_df: pd.DataFrame) -> pd.DataFrame:
+    subject_df = subject_df.copy()
+    account_code = subject_df["account_code"].astype(str)
+    subject_df["level1_code"] = account_code.str.slice(0, 4)
+    subject_df["level2_code"] = account_code.str.slice(0, 6)
+    subject_df["level3_code"] = account_code.str.slice(0, 8)
+    return subject_df
+
+
+def _extract_subject_mapping_terms(rule_text: str) -> list[dict[str, str]]:
+    text = _clean_mapping_cell(rule_text)
+    if not text:
+        return []
+    pattern = re.compile(r"(?<!\d)(\d{4,12})(?!\d)\s*(?:科目)?\s*(余额|期初|期末|发生额)?\s*(借方|贷方)?\s*(?:余额|金额)?\s*(轧差值|轧差额|轧差)?")
+    terms: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for match in pattern.finditer(text):
+        code = match.group(1)
+        amount_type = match.group(2) or "余额"
+        if amount_type == "期末":
+            amount_type = "余额"
+        side = match.group(3) or "借方"
+        net_type = match.group(4) or ""
+        key = (code, amount_type, side, net_type)
+        if key in seen:
+            continue
+        seen.add(key)
+        terms.append({"科目号": code, "金额类型": amount_type, "方向": side, "轧差": "是" if net_type else "否"})
+    return terms
+
+
+def _subject_mapping_amount(subject_df: pd.DataFrame, term: dict[str, str]) -> tuple[float, int]:
+    from engine.rule_calculator import _match_account_rows, _subject_amount
+
+    code = term["科目号"]
+    matched_df = _match_account_rows(subject_df, code)
+    amount = _subject_amount(subject_df, code, term["方向"], term["轧差"] == "是", term["金额类型"])
+    return amount, int(len(matched_df))
+
+
+def _build_subject_mapping_for_institution(
+    requirement_df: pd.DataFrame,
+    institution_type: str,
+    subject_file_path: Path,
+    profile_key: str | None = None,
+) -> tuple[pd.DataFrame, Path]:
+    from engine.fiscal_mapping_agent import FiscalMappingAgentConfig, run_fiscal_mapping_agent
+
+    output_path = _subject_mapping_output_path(institution_type, profile_key)
+    config = FiscalMappingAgentConfig(
+        company_type=institution_type,
+        report_context="rule_agent_first",
+        use_history=False,
+        fiscal_requirement_items=tuple(_fiscal_requirement_items_for_institution(requirement_df, institution_type)),
+    )
+    return run_fiscal_mapping_agent(
+        subject_file_path,
+        output_path,
+        config=config,
+        confirmed_mapping_path=None,
+    )
+
+
+def _subject_expected_mapping_column_index(raw_df: pd.DataFrame, profile_key: str | None) -> int | None:
+    if raw_df is None or raw_df.empty:
+        return None
+    # Current six-column subject template:
+    # A-C are user input, D = group subject view, E = MOF view, F = IFRS 18 view.
+    if raw_df.shape[1] >= 6:
+        if profile_key == "group":
+            return 3
+        if profile_key == "ifrs18":
+            return 5
+        return 4
+
+    # Backward compatibility for the previous five-column template:
+    # A-C are user input, D = MOF view, E = IFRS 18 view.
+    if profile_key == "group":
+        return None
+    if profile_key == "ifrs18":
+        if raw_df.shape[1] >= 5:
+            return 4
+        return None
+    if raw_df.shape[1] >= 4:
+        return 3
+    return None
+
+
+def _subject_mapping_profile_label(profile_key: str | None) -> str:
+    if profile_key == "group":
+        return "\u96c6\u56e2\u79d1\u76ee\u53e3\u5f84"
+    return _consolidation_requirement_profiles().get(profile_key or "", "")
+
+
+def _refresh_confirmed_mapping_from_subject_expected_answers(
+    institution_type: str,
+    subject_file_path: Path,
+    profile_key: str | None,
+) -> Path | None:
+    from engine.fiscal_mapping_agent import clean_cell, normalize_source_dataframe, read_source_excel
+
+    if not subject_file_path.exists():
+        return None
+    raw_df = read_source_excel(subject_file_path)
+    expected_index = _subject_expected_mapping_column_index(raw_df, profile_key)
+    if expected_index is None:
+        return None
+
+    normalized_df = normalize_source_dataframe(raw_df).reset_index(drop=True)
+    if normalized_df.empty:
+        return None
+
+    # Some legacy templates contain explanatory rows after the header, such as
+    # a lone "????" value in the mapping column. Align answers only to rows
+    # that have user input in the first three columns.
+    if raw_df.shape[1] >= 3:
+        input_row_mask = raw_df.iloc[:, :3].apply(
+            lambda row: any(clean_cell(value) for value in row),
+            axis=1,
+        )
+        answer_df = raw_df[input_row_mask].reset_index(drop=True)
+    else:
+        answer_df = raw_df.reset_index(drop=True)
+
+    expected_values = [
+        clean_cell(answer_df.iloc[index, expected_index])
+        for index in range(min(len(answer_df), len(normalized_df)))
+    ]
+    if not any(value for value in expected_values):
+        return None
+
+    profile_label = _subject_mapping_profile_label(profile_key)
+    rows: list[dict[str, str]] = []
+    for index, row in normalized_df.iterrows():
+        expected = expected_values[index] if index < len(expected_values) else ""
+        rows.append(
+            {
+                "SourceSeq": clean_cell(row.get("??", "")) or (clean_cell(answer_df.iloc[index, 0]) if index < len(answer_df) else ""),
+                "SubjectCode": clean_cell(row.get("SubjectCode", "")),
+                "FSLine": clean_cell(row.get("FSLine", "")),
+                "NoteLine": clean_cell(row.get("NoteLine", "")),
+                "Grouping_Consolidated": expected if expected else "__BLANK__",
+                "Grouping_Standalone": expected if expected else "__BLANK__",
+                "CompanyType": institution_type,
+                "LockMapping": "1",
+                "MappingBasis": f"{institution_type}{profile_label} uploaded confirmed mapping",
+            }
+        )
+
+    target = _fiscal_mapping_agent_profile_confirmed_path(profile_key) if profile_key else _fiscal_mapping_agent_confirmed_path(profile_key)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    learned_df = pd.DataFrame(rows)
+    if target.exists():
+        try:
+            existing_df = pd.read_excel(target, sheet_name=0, dtype=object, engine="openpyxl").fillna("")
+            if "CompanyType" in existing_df.columns:
+                existing_df = existing_df[existing_df["CompanyType"].map(_clean_mapping_cell) != institution_type]
+            combined_df = pd.concat([existing_df, learned_df], ignore_index=True)
+        except Exception:
+            combined_df = learned_df
+    else:
+        combined_df = learned_df
+    combined_df = combined_df.drop_duplicates(
+        subset=["SourceSeq", "SubjectCode", "FSLine", "NoteLine", "CompanyType"],
+        keep="last",
+    )
+    combined_df.to_excel(target, index=False, sheet_name="confirmed")
+    return target
+
+
+def _build_group_subject_mapping_for_institution(
+    institution_type: str,
+    subject_file_path: Path,
+) -> tuple[pd.DataFrame, Path]:
+    from engine.fiscal_mapping_agent import FiscalMappingAgentConfig, run_fiscal_mapping_agent
+
+    output_path = _subject_group_mapping_output_path(institution_type)
+    config = FiscalMappingAgentConfig(
+        company_type=institution_type,
+        report_context="group_rule_agent_first",
+        use_history=False,
+        fiscal_requirement_items=(),
+    )
+    return run_fiscal_mapping_agent(
+        subject_file_path,
+        output_path,
+        config=config,
+        confirmed_mapping_path=None,
+    )
+
+
+def _write_three_profile_subject_mapping(
+    institution_type: str,
+    subject_file_path: Path,
+    group_df: pd.DataFrame | None,
+    mof_df: pd.DataFrame | None,
+    ifrs18_df: pd.DataFrame | None,
+) -> Path | None:
+    from engine.fiscal_mapping_agent import clean_cell, normalize_source_dataframe, read_source_excel
+
+    raw_df = read_source_excel(subject_file_path)
+    source_df = normalize_source_dataframe(raw_df).reset_index(drop=True)
+    if source_df.empty:
+        return None
+
+    def source_values(column: str, fallback_index: int) -> list[str]:
+        if column in source_df.columns:
+            values = source_df[column].map(clean_cell).tolist()
+        elif fallback_index < raw_df.shape[1]:
+            values = raw_df.iloc[:, fallback_index].map(clean_cell).tolist()
+        else:
+            values = [""] * len(source_df)
+        return values[: len(source_df)] + [""] * max(0, len(source_df) - len(values))
+
+    def mapped_values(result_df: pd.DataFrame | None) -> list[str]:
+        if result_df is None or result_df.empty or "Grouping_Consolidated" not in result_df.columns:
+            return [""] * len(source_df)
+        values = result_df.reset_index(drop=True)["Grouping_Consolidated"].map(clean_cell).tolist()
+        return values[: len(source_df)] + [""] * max(0, len(source_df) - len(values))
+
+    output_df = pd.DataFrame(
+        {
+            "\u5e8f\u53f7": source_values("\u5e8f\u53f7", 0),
+            "\u79d1\u76ee\u7f16\u7801": source_values("SubjectCode", 1),
+            "\u79d1\u76ee\u540d\u79f0": source_values("NoteLine", 2),
+            "\u96c6\u56e2\u79d1\u76ee\u53e3\u5f84\u6620\u5c04": mapped_values(group_df),
+            "\u8d22\u653f\u90e8\u53e3\u5f84\u6620\u5c04": mapped_values(mof_df),
+            "IFRS 18\u6620\u5c04": mapped_values(ifrs18_df),
+        }
+    )
+    output_path = _subject_mapping_combined_output_path(institution_type)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_df.to_excel(output_path, index=False, sheet_name="mapping")
+    return output_path
+
+
+
+def _write_subject_mapping_diff_report(
+    institution_type: str,
+    subject_file_path: Path,
+    combined_path: Path | None,
+) -> Path | None:
+    from engine.fiscal_mapping_agent import clean_cell, read_source_excel
+
+    if combined_path is None or not combined_path.exists():
+        return None
+    raw_df = read_source_excel(subject_file_path)
+    if raw_df.shape[1] < 6:
+        return None
+    result_df = pd.read_excel(combined_path, dtype=object, engine="openpyxl").fillna("")
+    if result_df.empty:
+        return None
+
+    checks = [
+        ("\u96c6\u56e2\u79d1\u76ee\u53e3\u5f84", 3, "\u96c6\u56e2\u79d1\u76ee\u53e3\u5f84\u6620\u5c04"),
+        ("\u8d22\u653f\u90e8\u53e3\u5f84", 4, "\u8d22\u653f\u90e8\u53e3\u5f84\u6620\u5c04"),
+        ("IFRS 18\u53e3\u5f84", 5, "IFRS 18\u6620\u5c04"),
+    ]
+    rows: list[dict[str, object]] = []
+    max_rows = min(len(raw_df), len(result_df))
+    for index in range(max_rows):
+        seq = clean_cell(raw_df.iloc[index, 0]) if raw_df.shape[1] > 0 else ""
+        code = clean_cell(raw_df.iloc[index, 1]) if raw_df.shape[1] > 1 else ""
+        name = clean_cell(raw_df.iloc[index, 2]) if raw_df.shape[1] > 2 else ""
+        for profile_label, expected_index, actual_column in checks:
+            expected = clean_cell(raw_df.iloc[index, expected_index])
+            actual = clean_cell(result_df.iloc[index].get(actual_column, ""))
+            if not expected and not actual:
+                continue
+            rows.append(
+                {
+                    "\u884c\u53f7": index + 1,
+                    "\u5e8f\u53f7": seq,
+                    "\u79d1\u76ee\u7f16\u7801": code,
+                    "\u79d1\u76ee\u540d\u79f0": name,
+                    "\u53e3\u5f84": profile_label,
+                    "\u9884\u671f\u6620\u5c04": expected,
+                    "\u7a0b\u5e8f\u6620\u5c04": actual,
+                    "\u662f\u5426\u4e00\u81f4": "\u662f" if expected == actual else "\u5426",
+                }
+            )
+    if not rows:
+        return None
+
+    diff_df = pd.DataFrame(rows)
+    summary_df = (
+        diff_df.groupby("\u53e3\u5f84")["\u662f\u5426\u4e00\u81f4"]
+        .agg(total="count", matched=lambda values: int((values == "\u662f").sum()))
+        .reset_index()
+    )
+    summary_df["diff"] = summary_df["total"] - summary_df["matched"]
+    output_path = _subject_mapping_diff_output_path(institution_type)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+        summary_df.to_excel(writer, index=False, sheet_name="summary")
+        diff_df.to_excel(writer, index=False, sheet_name="detail")
+    return output_path
+
+def _build_subject_mapping_for_all_requirement_profiles(
+    institution_type: str,
+    subject_file_path: Path,
+) -> list[tuple[str, Path]]:
+    built_outputs: list[tuple[str, Path]] = []
+    group_df: pd.DataFrame | None = None
+    mof_df: pd.DataFrame | None = None
+    ifrs18_df: pd.DataFrame | None = None
+
+    group_df, group_path = _build_group_subject_mapping_for_institution(institution_type, subject_file_path)
+    built_outputs.append(("\u96c6\u56e2\u79d1\u76ee\u53e3\u5f84", group_path))
+
+    profiles = _consolidation_requirement_profiles()
+    for profile_key in profiles:
+        requirement_path = _consolidation_requirement_path(profile_key)
+        if not requirement_path.exists():
+            continue
+        requirement_df = _normalize_consolidation_requirement_df(_read_consolidation_requirement_excel(requirement_path))
+        if requirement_df.empty or institution_type not in _active_subject_mapping_institution_columns(requirement_df):
+            continue
+        result_df, saved_path = _build_subject_mapping_for_institution(
+            requirement_df,
+            institution_type,
+            subject_file_path,
+            profile_key,
+        )
+        if profile_key == "mof":
+            mof_df = result_df
+        elif profile_key == "ifrs18":
+            ifrs18_df = result_df
+        built_outputs.append((profiles[profile_key], saved_path))
+
+    combined_path = _write_three_profile_subject_mapping(
+        institution_type,
+        subject_file_path,
+        group_df,
+        mof_df,
+        ifrs18_df,
+    )
+    if combined_path is not None:
+        built_outputs.append(("\u4e09\u53e3\u5f84\u6620\u5c04\u8868", combined_path))
+        diff_path = _write_subject_mapping_diff_report(institution_type, subject_file_path, combined_path)
+        if diff_path is not None:
+            built_outputs.append(("\u6620\u5c04\u5dee\u5f02\u62a5\u544a", diff_path))
+    return built_outputs
+
+
+def _fiscal_requirement_items_for_institution(requirement_df: pd.DataFrame, institution_type: str) -> list[str]:
+    if requirement_df is None or requirement_df.empty or institution_type not in requirement_df.columns:
+        return []
+    items: list[str] = []
+    seen: set[str] = set()
+    for value in requirement_df[institution_type].map(_clean_mapping_cell).tolist():
+        if not value:
+            continue
+        for item in re.split(r"[、,，;/；]+", value):
+            cleaned = _clean_mapping_cell(item)
+            if not cleaned or cleaned in seen:
+                continue
+            seen.add(cleaned)
+            items.append(cleaned)
+    return items
+
+
+def _data_mapping_module_title() -> str:
+    return "IFRS 18规则初始化"
+
+
+def render_data_mapping_init_page() -> None:
+    fill_link = app_href(nav_mode="data_mapping", mapping_section="consolidation")
+    subject_link = app_href(nav_mode="data_mapping", mapping_section="subject_mapping")
+    st.markdown(
+        f"""
+        <style>
+        .ifrs-init-grid {{
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 1rem;
+            margin: .9rem 0 1rem;
+        }}
+        .ifrs-init-card {{
+            position: relative;
+            min-height: 205px;
+            padding: 1.15rem 1.2rem;
+            border-radius: 16px;
+            background: rgba(255,255,255,.95);
+            border: 1px solid #dbe7f6;
+            box-shadow: 0 16px 38px rgba(30, 64, 120, .09);
+            overflow: hidden;
+        }}
+        .ifrs-init-card.fill {{ border-color: rgba(31,124,255,.32); }}
+        .ifrs-init-card.subject {{ border-color: rgba(20,166,150,.32); }}
+        .ifrs-init-icon {{
+            width: 46px;
+            height: 46px;
+            border-radius: 14px;
+            display: grid;
+            place-items: center;
+            color: #fff;
+            font-size: 1.35rem;
+            font-weight: 950;
+            margin-bottom: .75rem;
+        }}
+        .ifrs-init-card.fill .ifrs-init-icon {{ background: linear-gradient(145deg, #1f7cff, #2563eb); }}
+        .ifrs-init-card.subject .ifrs-init-icon {{ background: linear-gradient(145deg, #14a69a, #0f9f6e); }}
+        .ifrs-init-title {{
+            color: #10213f;
+            font-size: 1.25rem;
+            font-weight: 950;
+            margin-bottom: .42rem;
+        }}
+        .ifrs-init-desc {{
+            max-width: 58%;
+            color: #64748b;
+            font-size: .86rem;
+            line-height: 1.65;
+            min-height: 3rem;
+        }}
+        .ifrs-init-btn {{
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 1rem;
+            min-width: 128px;
+            min-height: 34px;
+            padding: 0 .9rem;
+            border-radius: 999px;
+            color: #fff !important;
+            text-decoration: none !important;
+            font-size: .82rem;
+            font-weight: 900;
+        }}
+        .ifrs-init-card.fill .ifrs-init-btn {{ background: linear-gradient(90deg, #1f7cff, #2563eb); }}
+        .ifrs-init-card.subject .ifrs-init-btn {{ background: linear-gradient(90deg, #14a69a, #0f9f6e); }}
+        .ifrs-init-visual {{
+            position: absolute;
+            right: 1rem;
+            top: 3.1rem;
+            width: 170px;
+            height: 118px;
+            border-radius: 20px;
+            display: grid;
+            place-items: center;
+            font-size: 3.1rem;
+            color: rgba(31,124,255,.85);
+            background: linear-gradient(145deg, rgba(232,242,255,.95), rgba(255,255,255,.55));
+        }}
+        .ifrs-init-card.subject .ifrs-init-visual {{
+            color: rgba(20,166,150,.9);
+            background: linear-gradient(145deg, rgba(230,250,247,.95), rgba(255,255,255,.55));
+        }}
+        @media (max-width: 1100px) {{
+            .ifrs-init-grid {{ grid-template-columns: 1fr; }}
+            .ifrs-init-desc {{ max-width: 100%; }}
+            .ifrs-init-visual {{ display: none; }}
+        }}
+        </style>
+        <div class="ifrs-init-grid">
+          <div class="ifrs-init-card fill">
+            <div class="ifrs-init-icon">▣</div>
+            <div class="ifrs-init-title">填报说明上传</div>
+            <div class="ifrs-init-desc">上传财政部填报说明、IFRS 18填报说明，作为规则初始化依据。</div>
+            <a class="ifrs-init-btn" href="{fill_link}" target="_self">新建填报说明 ›</a>
+            <div class="ifrs-init-visual">▤</div>
+          </div>
+          <div class="ifrs-init-card subject">
+            <div class="ifrs-init-icon">▦</div>
+            <div class="ifrs-init-title">科目映射上传</div>
+            <div class="ifrs-init-desc">上传各机构类型科目表，生成并维护财政部口径与 IFRS 18口径映射。</div>
+            <a class="ifrs-init-btn" href="{subject_link}" target="_self">新建科目映射 ›</a>
+            <div class="ifrs-init-visual">▥</div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_data_mapping_page(section: str | None = None) -> None:
+    current_section = section or _mapping_section()
+    st.session_state["data_mapping_section"] = current_section
+    section_titles = {
+        "init": "IFRS规则初始化",
+        "consolidation": "填报说明上传",
+        "subject_mapping": "科目映射上传",
+        "subject_mapping_result": "科目映射上传结果",
+    }
+    st.markdown(
+        f"""
+        <div class="frc-view-hero">
+          <div class="frc-view-crumb">{_data_mapping_module_title()} / {section_titles[current_section]}</div>
+          <div class="frc-view-title">{_data_mapping_module_title()}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if current_section == "init":
+        render_data_mapping_init_page()
+    elif current_section == "consolidation":
+        st.link_button(
+            "返回 IFRS 18规则初始化",
+            app_href(nav_mode="data_mapping", mapping_section="init"),
+            use_container_width=False,
+        )
+        render_mapping_consolidation_requirements()
+    elif current_section == "subject_mapping":
+        st.link_button(
+            "返回 IFRS 18规则初始化",
+            app_href(nav_mode="data_mapping", mapping_section="init"),
+            use_container_width=False,
+        )
+        render_consolidation_subject_balance_mapping_action()
+    elif current_section == "subject_mapping_result":
+        render_subject_mapping_upload_result_page()
+
+
+def render_mapping_consolidation_requirements() -> None:
+    st.subheader("填报说明上传")
+    st.caption("支持分别上传财政部填报说明、IFRS 18填报说明。页面仅展示当前口径文件内容，不提供增加、修改、删除功能。")
+
+    profiles = _consolidation_requirement_profiles()
+    profile_key = st.selectbox(
+        "填报口径",
+        list(profiles.keys()),
+        format_func=lambda key: profiles[key],
+        key="consolidation_requirement_profile",
+        help="不同口径会保存为不同的填报说明文件，科目映射生成时分别读取财政部和 IFRS 18 说明。",
+    )
+    profile_label = profiles[profile_key]
+    stored_path = _consolidation_requirement_path(profile_key)
+    uploaded_file = st.file_uploader(
+        f"上传{profile_label} Excel",
+        type=["xlsx"],
+        key=f"consolidation_requirement_upload_{profile_key}",
+        help="支持首行或第二行为表头的 Excel，系统会自动识别并展示解析结果。",
+    )
+    if uploaded_file is not None:
+        uploaded_bytes = uploaded_file.getvalue()
+        import hashlib
+
+        upload_signature = f"consolidation_requirement_v3:{profile_key}:{uploaded_file.name}:{hashlib.sha256(uploaded_bytes).hexdigest()}"
+        signature_key = f"consolidation_requirement_upload_signature_{profile_key}"
+        df_key = f"consolidation_requirement_df_{profile_key}"
+        try:
+            if st.session_state.get(signature_key) != upload_signature:
+                uploaded_df = _read_consolidation_requirement_excel(BytesIO(uploaded_bytes))
+                _save_consolidation_requirement_excel(uploaded_df, profile_key)
+                st.session_state[df_key] = uploaded_df
+                st.session_state[signature_key] = upload_signature
+                st.session_state["consolidation_requirement_editor_version"] = (
+                    int(st.session_state.get("consolidation_requirement_editor_version", 0)) + 1
+                )
+                st.success(f"{profile_label}已上传并载入。")
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"读取{profile_label} Excel 失败：{exc}")
+
+    df_key = f"consolidation_requirement_df_{profile_key}"
+    if df_key in st.session_state:
+        current_df = st.session_state[df_key]
+    elif stored_path.exists():
+        try:
+            current_df = _read_consolidation_requirement_excel(stored_path)
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"读取已保存{profile_label}失败：{exc}")
+            current_df = pd.DataFrame()
+    else:
+        current_df = pd.DataFrame(columns=_consolidation_requirement_columns())
+
+    current_df = _normalize_consolidation_requirement_df(current_df)
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stDataFrame"] [role="columnheader"] {
+            background: #d7ecff !important;
+            color: #0f2f57 !important;
+            font-weight: 700 !important;
+        }
+        div[data-testid="stDataFrame"] [data-testid="stDataFrameResizable"] {
+            border-radius: 14px !important;
+            border: 1px solid #c8dcf4 !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if current_df.empty:
+        st.info("暂无可展示的合并填报要求，请先上传 Excel。")
+    else:
+        st.dataframe(
+            current_df,
+            use_container_width=True,
+            hide_index=True,
+            column_order=_visible_consolidation_requirement_columns(current_df),
+        )
+
+    if stored_path.exists():
+        st.download_button(
+            f"下载当前{profile_label}",
+            data=stored_path.read_bytes(),
+            file_name=stored_path.name,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+
+
+def _fiscal_mapping_agent_output_dir() -> Path:
+    return OUTPUT_DIR / "data_mapping" / "fiscal_mapping_agent"
+
+
+def _fiscal_mapping_agent_profile_confirmed_path(profile_key: str) -> Path:
+    profile_label = _subject_mapping_profile_label(profile_key)
+    return _fiscal_mapping_agent_output_dir() / f"已确认映射库_{_safe_mapping_file_stem(profile_label)}.xlsx"
+
+
+def _fiscal_mapping_agent_confirmed_path(profile_key: str | None = None) -> Path:
+    if profile_key:
+        profile_path = _fiscal_mapping_agent_profile_confirmed_path(profile_key)
+        if profile_path.exists():
+            return profile_path
+    return _fiscal_mapping_agent_output_dir() / "已确认映射库.xlsx"
+
+
+def _fiscal_mapping_agent_output_path(company_type: str) -> Path:
+    safe_company_type = _safe_mapping_file_stem(company_type)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return _fiscal_mapping_agent_output_dir() / f"{safe_company_type}_财政部报表项目智能映射_{timestamp}.xlsx"
+
+
+def _cloud_audit_agent_configured() -> bool:
+    return bool(
+        os.getenv("FRC_AUDIT_AGENT_API_KEY", "").strip()
+        and os.getenv("FRC_AUDIT_AGENT_BASE_URL", "https://api.openai.com/v1").strip()
+        and os.getenv("FRC_AUDIT_AGENT_MODEL", "").strip()
+    )
+
+
+def render_fiscal_report_mapping_agent_action() -> None:
+    with st.expander("财政部报表项目智能映射 Agent", expanded=True):
+        st.caption(
+            "上传仅包含“序号、FSLine、NoteLine”的 Excel，Agent 将基于公司属性、金融行业审计经验和本地规则库，自动补充合并口径列4与单体口径列5。"
+        )
+        form_columns = st.columns([1.2, 1, 1, 1, 1])
+        with form_columns[0]:
+            uploaded_file = st.file_uploader(
+                "上传三列表 Excel",
+                type=["xlsx"],
+                key="fiscal_mapping_agent_upload",
+                help="支持第一行或第二行为表头；系统会自动识别 FSLine 与 NoteLine。",
+            )
+        with form_columns[1]:
+            company_type = st.selectbox(
+                "公司属性",
+                ["银行类", "金融控股集团类", "证券类", "保险类", "担保类", "资产公司", "企业公司"],
+                key="fiscal_mapping_agent_company_type",
+            )
+        with form_columns[2]:
+            report_context = st.selectbox(
+                "映射口径",
+                ["合并及单体", "仅合并", "仅单体"],
+                key="fiscal_mapping_agent_context",
+            )
+        with form_columns[3]:
+            profiles = _consolidation_requirement_profiles()
+            profile_key = st.selectbox(
+                "填报口径",
+                list(profiles.keys()),
+                format_func=lambda key: profiles[key],
+                key="fiscal_mapping_agent_requirement_profile",
+            )
+            st.session_state["consolidation_requirement_profile"] = profile_key
+        with form_columns[4]:
+            use_history = st.checkbox(
+                "复用已确认映射",
+                value=True,
+                key="fiscal_mapping_agent_use_history",
+                help="如存在本地已确认映射库，将优先复用人工确认结果。",
+            )
+
+        if uploaded_file is None:
+            st.info("请上传包含序号、FSLine、NoteLine 的 Excel 后运行 Agent。")
+            return
+
+        if st.button("运行智能映射 Agent", key="run_fiscal_mapping_agent", type="primary", use_container_width=True):
+            try:
+                from engine.fiscal_mapping_agent import FiscalMappingAgentConfig, run_fiscal_mapping_agent
+
+                requirement_df = _current_consolidation_requirement_df()
+                config = FiscalMappingAgentConfig(
+                    company_type=company_type,
+                    report_context=report_context,
+                    use_history=use_history,
+                    fiscal_requirement_items=tuple(_fiscal_requirement_items_for_institution(requirement_df, company_type)),
+                )
+                output_path = _fiscal_mapping_agent_output_path(company_type)
+                result_df, saved_path = run_fiscal_mapping_agent(
+                    BytesIO(uploaded_file.getvalue()),
+                    output_path,
+                    config=config,
+        confirmed_mapping_path=_fiscal_mapping_agent_confirmed_path(profile_key),
+                )
+                st.session_state["fiscal_mapping_agent_result_df"] = result_df
+                st.session_state["fiscal_mapping_agent_output_path"] = str(saved_path)
+                st.success(f"已生成智能映射结果：{saved_path.name}")
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"智能映射 Agent 运行失败：{exc}")
+                return
+
+        result_df = st.session_state.get("fiscal_mapping_agent_result_df")
+        output_path_text = st.session_state.get("fiscal_mapping_agent_output_path")
+        if result_df is None or not output_path_text:
+            return
+
+        output_path = Path(output_path_text)
+        review_count = int((result_df["ReviewFlag"] == "是").sum()) if "ReviewFlag" in result_df.columns else 0
+        total_count = int(len(result_df))
+        metric_columns = st.columns(3)
+        metric_columns[0].metric("映射行数", total_count)
+        metric_columns[1].metric("需复核行数", review_count)
+        metric_columns[2].metric("自动通过率", f"{(total_count - review_count) / total_count:.0%}" if total_count else "0%")
+
+        st.dataframe(result_df, use_container_width=True, hide_index=True)
+        if output_path.exists():
+            st.download_button(
+                "下载智能映射结果",
+                data=output_path.read_bytes(),
+                file_name=output_path.name,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="download_fiscal_mapping_agent_result",
+                use_container_width=True,
+            )
+
+
+def render_consolidation_subject_balance_mapping_action() -> None:
+    st.subheader("科目映射上传")
+    profiles = _consolidation_requirement_profiles()
+    profile_key = "mof"
+    requirement_frames: list[pd.DataFrame] = []
+    missing_profiles: list[str] = []
+    for candidate_key, profile_label in profiles.items():
+        stored_path = _consolidation_requirement_path(candidate_key)
+        if not stored_path.exists():
+            missing_profiles.append(profile_label)
+            continue
+        try:
+            requirement_frames.append(_normalize_consolidation_requirement_df(_read_consolidation_requirement_excel(stored_path)))
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"读取{profile_label}失败：{exc}")
+            return
+
+    if not requirement_frames:
+        st.info("请先在“合并填报要求”页面上传财政部填报口径和 IFRS 18 填报口径 Excel。")
+        return
+
+    requirement_df = _normalize_consolidation_requirement_df(pd.concat(requirement_frames, ignore_index=True))
+    active_institution_types = _active_subject_mapping_institution_columns(requirement_df)
+    if not active_institution_types:
+        st.info("当前合并填报要求中没有银行类、证券类、保险类、担保类、资产公司、企业公司的非空规则，暂不需要上传科目映射文件。")
+        return
+
+    _apply_upload_page_styles()
+    st.caption("每个机构类型只上传一份科目表。文件可包含前三列（序号、科目编码、科目名称），也可包含后三列正确答案；点击生成后一次性产出集团科目、财政部和 IFRS 18 三口径映射。")
+    if missing_profiles:
+        st.warning(f"以下填报要求尚未上传，生成时会跳过对应口径：{'、'.join(missing_profiles)}。")
+    _subject_mapping_input_dir().mkdir(parents=True, exist_ok=True)
+    _subject_mapping_output_dir().mkdir(parents=True, exist_ok=True)
+
+    message = st.session_state.pop("subject_mapping_message", "")
+    if message:
+        st.success(message)
+
+    _render_subject_mapping_upload_table_header()
+    for index, institution_type in enumerate(active_institution_types, start=1):
+        _render_subject_mapping_upload_row(index, institution_type, requirement_df, profile_key)
+
+
+def _subject_mapping_rule_count(requirement_df: pd.DataFrame, institution_type: str) -> int:
+    if institution_type not in requirement_df.columns:
+        return 0
+    institution_rules = requirement_df[institution_type].map(_clean_mapping_cell)
+    return int((institution_rules != "").sum())
+
+
+def _subject_mapping_status(input_path: Path, output_path: Path) -> str:
+    if input_path.exists() and output_path.exists():
+        return "mapped"
+    if input_path.exists():
+        return "uploaded"
+    return "pending_upload"
+
+
+def _render_subject_mapping_upload_table_header() -> None:
+    labels = [
+        "\u5e8f\u53f7",
+        "\u673a\u6784\u7c7b\u578b",
+        "\u79d1\u76ee\u8868 / \u6620\u5c04\u7ed3\u679c",
+        "\u79d1\u76ee\u8868\u4e0a\u4f20",
+        "\u751f\u6210\u6620\u5c04",
+        "\u4e0b\u8f7d\u6620\u5c04",
+        "\u7ed3\u679c\u4e0a\u4f20",
+        "\u72b6\u6001",
+    ]
+    header_columns = st.columns([0.48, 1.0, 2.65, 1.0, 1.38, 1.08, 1.22, 1.08], gap="small", vertical_alignment="center")
+    for column, label in zip(header_columns, labels):
+        with column:
+            st.markdown(
+                f'<div class="subject-mapping-table-header-cell">{html.escape(label)}</div>',
+                unsafe_allow_html=True,
+            )
+
+
+
+
+def _uploaded_workbook_looks_like_fiscal_mapping(file_bytes: bytes) -> bool:
+    try:
+        raw_df = pd.read_excel(BytesIO(file_bytes), sheet_name=0, header=None, dtype=object, engine="openpyxl")
+    except Exception:
+        return False
+    if raw_df.empty:
+        return False
+    scan_df = raw_df.head(10).fillna("")
+    compact_cells = {_compact_mapping_text(value) for value in scan_df.to_numpy().ravel() if _clean_mapping_cell(value)}
+    has_grouping_result = bool(
+        compact_cells
+        & {
+            "groupingconsolidated",
+            "groupingstandalone",
+            "合并口径财政部报表项目",
+            "单体口径财政部报表项目",
+            "列4合并口径财政部报表项目",
+            "列5单体口径财政部报表项目",
+        }
+    )
+    has_mapping_metadata = bool(compact_cells & {"confidence", "mappingbasis", "reviewflag", "置信度", "映射依据", "是否复核"})
+    return has_grouping_result or has_mapping_metadata
+
+
+def _save_subject_mapping_upload(uploaded_file, input_path: Path, output_path: Path, institution_type: str = "") -> str:
+    file_bytes = uploaded_file.getvalue()
+    input_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    input_path.write_bytes(file_bytes)
+    if _uploaded_workbook_looks_like_fiscal_mapping(file_bytes):
+        output_path.write_bytes(file_bytes)
+        try:
+            from engine.fiscal_mapping_agent import update_confirmed_mapping_library
+
+            update_confirmed_mapping_library(BytesIO(file_bytes), _fiscal_mapping_agent_confirmed_path(), institution_type)
+        except Exception:
+            pass
+        return "final_mapping"
+    if output_path.exists():
+        output_path.unlink()
+    return "source_only"
+
+
+def _save_subject_mapping_result_upload(uploaded_file, output_path: Path, institution_type: str = "") -> None:
+    file_bytes = uploaded_file.getvalue()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(file_bytes)
+    try:
+        from engine.fiscal_mapping_agent import update_confirmed_mapping_library
+
+        update_confirmed_mapping_library(BytesIO(file_bytes), _fiscal_mapping_agent_confirmed_path(), institution_type)
+    except Exception:
+        pass
+
+
+def _render_subject_mapping_upload_row(index: int, institution_type: str, requirement_df: pd.DataFrame, profile_key: str | None = None) -> None:
+    input_path = _subject_balance_input_path(institution_type)
+    upload_target_path = _subject_table_input_path(institution_type)
+    legacy_input_path = _legacy_subject_balance_input_path(institution_type)
+    profile_key = profile_key or _active_consolidation_requirement_profile_key()
+    output_path = _subject_mapping_output_path(institution_type, profile_key)
+    combined_output_path = _subject_mapping_combined_output_path(institution_type)
+    display_output_path = combined_output_path if combined_output_path.exists() else output_path
+    status = _subject_mapping_status(input_path, display_output_path)
+    if display_output_path.exists():
+        try:
+            result_df = pd.read_excel(display_output_path, dtype=object, engine="openpyxl")
+            total_count = int(len(result_df))
+            review_count = int((result_df.get("ReviewFlag", pd.Series(dtype=str)).astype(str) == "是").sum()) if not result_df.empty else 0
+            pass_rate = f"{(total_count - review_count) / total_count:.0%}" if total_count else "0%"
+            result_summary = f"映射结果：{total_count} 行 · 需复核 {review_count} 行 · 自动通过 {pass_rate}"
+        except Exception:
+            result_summary = "映射结果已生成，预览统计读取失败"
+    elif input_path.exists():
+        result_summary = "科目表已上传，待生成科目映射"
+    else:
+        result_summary = "等待上传科目表"
+    row_columns = st.columns([0.48, 1.0, 2.65, 1.0, 1.38, 1.08, 1.22, 1.08], gap="small", vertical_alignment="center")
+    with row_columns[0]:
+        st.markdown(f'<div class="subject-card-index">#{index}</div>', unsafe_allow_html=True)
+    with row_columns[1]:
+        st.markdown(f'<div class="subject-card-type">{html.escape(institution_type)}</div>', unsafe_allow_html=True)
+    with row_columns[2]:
+        st.markdown(
+            f"""
+            <div>
+              <div class="upload-file-name">{html.escape(input_path.name if input_path.exists() else "未上传")}</div>
+              <div class="upload-file-desc">单一科目表，用于生成{html.escape(institution_type)}三口径映射表</div>
+              <div class="upload-file-meta">{html.escape(result_summary)}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    action_columns = row_columns[3:]
+    with action_columns[0]:
+        upload_nonce_key = f"subject_mapping_upload_nonce_{profile_key}_{institution_type}"
+        upload_nonce = int(st.session_state.get(upload_nonce_key, 0))
+        uploaded_file = st.file_uploader(
+            "上传科目表",
+            type=["xlsx"],
+            key=f"subject_mapping_upload_{profile_key}_{institution_type}_{upload_nonce}",
+            label_visibility="collapsed",
+            help="上传后会覆盖该机构类型当前科目表。文件可包含前三列，或包含集团/财政部/IFRS 18正确答案列。",
+        )
+        if uploaded_file is not None:
+            try:
+                upload_kind = _save_subject_mapping_upload(uploaded_file, upload_target_path, output_path, institution_type)
+                if legacy_input_path != upload_target_path and legacy_input_path.exists():
+                    legacy_input_path.unlink()
+                if upload_kind == "source_only":
+                    for stale_path in {
+                        combined_output_path,
+                        _subject_group_mapping_output_path(institution_type),
+                        _subject_mapping_output_path(institution_type, "mof"),
+                        _subject_mapping_output_path(institution_type, "ifrs18"),
+                    }:
+                        if stale_path.exists():
+                            stale_path.unlink()
+                st.session_state[upload_nonce_key] = upload_nonce + 1
+                if upload_kind == "final_mapping":
+                    st.session_state["subject_mapping_message"] = f"{institution_type}已上传人工修改后的最终映射结果。"
+                else:
+                    st.session_state["subject_mapping_message"] = f"{institution_type}科目表已上传。请点击“下载”核对文件，或点击“生成科目映射”一次性生成集团科目、财政部和 IFRS 18 三口径映射。"
+                st.rerun()
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"上传失败：{exc}")
+    with action_columns[1]:
+        if st.button("生成科目映射", key=f"subject_mapping_generate_{profile_key}_{institution_type}", disabled=not input_path.exists(), use_container_width=True):
+            try:
+                built_outputs = _build_subject_mapping_for_all_requirement_profiles(institution_type, input_path)
+                if not built_outputs:
+                    st.warning("未找到可用的财政部或 IFRS 18 合并填报要求，无法生成映射表。")
+                    return
+                profile_names = "、".join(profile_name for profile_name, _ in built_outputs)
+                st.session_state["subject_mapping_message"] = f"{institution_type}映射表已同时生成：{profile_names}。"
+                st.rerun()
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"生成失败：{exc}")
+    with action_columns[2]:
+        if input_path.exists():
+            download_path = display_output_path if display_output_path.exists() else input_path
+            st.download_button(
+                "下载映射",
+                data=download_path.read_bytes(),
+                file_name=download_path.name,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"subject_mapping_download_{profile_key}_{institution_type}",
+                use_container_width=True,
+            )
+        else:
+            st.caption("暂无文件")
+    with action_columns[3]:
+        mapping_upload_nonce_key = f"subject_mapping_result_upload_nonce_{profile_key}_{institution_type}"
+        mapping_upload_nonce = int(st.session_state.get(mapping_upload_nonce_key, 0))
+        mapping_file = st.file_uploader(
+            "上传映射表",
+            type=["xlsx"],
+            key=f"subject_mapping_result_upload_{profile_key}_{institution_type}_{mapping_upload_nonce}",
+            label_visibility="collapsed",
+            help="上传人工修订后的映射结果，会覆盖当前映射结果并沉淀到已确认映射库。",
+        )
+        if mapping_file is not None:
+            try:
+                mapping_output_path = display_output_path if display_output_path.exists() else output_path
+                _save_subject_mapping_result_upload(mapping_file, mapping_output_path, institution_type)
+                st.session_state[mapping_upload_nonce_key] = mapping_upload_nonce + 1
+                st.session_state["subject_mapping_message"] = f"{institution_type}映射结果已上传。"
+                st.rerun()
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"上传映射结果失败：{exc}")
+    with action_columns[4]:
+        st.markdown(f'<div class="subject-status-cell">{_status_badge(status)}</div>', unsafe_allow_html=True)
+    st.markdown('<div class="subject-mapping-row-divider"></div>', unsafe_allow_html=True)
+
+
+def render_subject_mapping_upload_result_page() -> None:
+    institution_type = _query_param_value("institution_type") or ""
+    profile_key = _query_param_value("requirement_profile") or _active_consolidation_requirement_profile_key()
+    if profile_key not in _consolidation_requirement_profiles():
+        profile_key = "mof"
+    st.session_state["consolidation_requirement_profile"] = profile_key
+    active_types = _active_subject_mapping_institution_columns(_current_consolidation_requirement_df())
+    if institution_type not in active_types:
+        st.subheader("科目映射上传结果")
+        st.warning("未找到有效的机构类型，请从“科目映射上传”页面进入查询结果。")
+        st.link_button(
+            "返回科目映射上传",
+            app_href(nav_mode="data_mapping", mapping_section="subject_mapping"),
+            use_container_width=True,
+        )
+        return
+
+    st.subheader(f"{institution_type}上传结果")
+    st.caption("当前展示单一科目表生成的集团科目、财政部和 IFRS 18 三口径映射结果。")
+    st.link_button(
+        "返回科目映射上传",
+        app_href(nav_mode="data_mapping", mapping_section="subject_mapping"),
+        use_container_width=True,
+    )
+    _render_subject_mapping_upload_query_result(
+        institution_type,
+        _subject_balance_input_path(institution_type),
+        _subject_mapping_combined_output_path(institution_type)
+        if _subject_mapping_combined_output_path(institution_type).exists()
+        else _subject_mapping_output_path(institution_type, profile_key),
+    )
+
+
+def _current_consolidation_requirement_df() -> pd.DataFrame:
+    profile_key = _active_consolidation_requirement_profile_key()
+    stored_path = _consolidation_requirement_path(profile_key)
+    df_key = f"consolidation_requirement_df_{profile_key}"
+    if df_key in st.session_state:
+        return _normalize_consolidation_requirement_df(st.session_state[df_key])
+    if not stored_path.exists():
+        return pd.DataFrame(columns=["序号", *_consolidation_requirement_columns()])
+    try:
+        return _normalize_consolidation_requirement_df(_read_consolidation_requirement_excel(stored_path))
+    except Exception:
+        return pd.DataFrame(columns=["序号", *_consolidation_requirement_columns()])
+
+
+def _render_subject_mapping_upload_query_result(institution_type: str, input_path: Path, output_path: Path) -> None:
+    if not input_path.exists():
+        st.info(f"尚未上传{institution_type}科目表。")
+        return
+
+    if output_path.exists():
+        try:
+            result_df = pd.read_excel(output_path, dtype=object, engine="openpyxl")
+        except Exception as exc:  # noqa: BLE001
+            st.warning(f"读取映射结果失败：{exc}")
+            _render_uploaded_excel_raw_preview(input_path)
+            return
+        st.caption(f"已生成映射结果 {len(result_df)} 行，以下展示前 200 行。")
+        st.dataframe(result_df.head(200), use_container_width=True, hide_index=True)
+        st.download_button(
+            f"下载{institution_type}映射结果",
+            data=output_path.read_bytes(),
+            file_name=output_path.name,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            key=f"subject_mapping_download_{institution_type}",
+        )
+        return
+
+    st.caption("当前仅完成上传，尚未生成映射。以下展示上传原始内容。")
+    _render_uploaded_excel_raw_preview(input_path)
+
+def _render_uploaded_excel_raw_preview(input_path: Path) -> None:
+    try:
+        excel_file = pd.ExcelFile(input_path, engine="openpyxl")
+    except Exception as exc:  # noqa: BLE001
+        st.error(f"读取原始 Excel 失败：{exc}")
+        return
+
+    sheet_name = st.selectbox(
+        "选择工作表",
+        excel_file.sheet_names,
+        key=f"subject_mapping_raw_sheet_{input_path.stem}",
+    )
+    try:
+        raw_df = pd.read_excel(input_path, sheet_name=sheet_name, header=None, dtype=object, engine="openpyxl")
+    except Exception as exc:  # noqa: BLE001
+        st.error(f"读取工作表失败：{exc}")
+        return
+    raw_df = raw_df.dropna(how="all").copy()
+    raw_df = raw_df.dropna(axis=1, how="all")
+    if raw_df.empty:
+        st.info("该工作表为空。")
+        return
+    preview_df = raw_df.fillna("")
+    preview_df.columns = [f"列{index + 1}" for index in range(len(preview_df.columns))]
+    st.caption(f"原始上传内容：{sheet_name}，共 {len(preview_df)} 行、{len(preview_df.columns)} 列，以下展示前 200 行。")
+    st.dataframe(preview_df.head(200), use_container_width=True, hide_index=True)
+
+
+def _render_subject_mapping_result_preview(result_df: pd.DataFrame, output_path: Path, institution_type: str) -> None:
+    matched_count = int((result_df.get("状态", pd.Series(dtype=str)).astype(str) == "已匹配").sum()) if not result_df.empty else 0
+    unmatched_count = int((result_df.get("状态", pd.Series(dtype=str)).astype(str) == "未匹配").sum()) if not result_df.empty else 0
+    unparsed_count = int((result_df.get("状态", pd.Series(dtype=str)).astype(str) == "未解析").sum()) if not result_df.empty else 0
+    st.caption(f"匹配 {matched_count} 条，未匹配 {unmatched_count} 条，未解析 {unparsed_count} 条。")
+    st.dataframe(result_df.head(100), use_container_width=True, hide_index=True)
+    st.download_button(
+        f"下载{institution_type}映射表",
+        data=output_path.read_bytes(),
+        file_name=output_path.name,
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+        key=f"subject_mapping_download_{institution_type}",
+    )
 
 
 def render_unified_navigation(
@@ -6149,6 +8864,8 @@ def render_unified_navigation(
     st.session_state["main_navigation_mode"] = selected
     if selected == "view" and report_key:
         st.session_state["view_directory_selected_key"] = report_key
+    elif selected == "view":
+        st.session_state.pop("view_directory_selected_key", None)
     current_step = _workflow_step()
     if current == "make_report":
         st.session_state["make_workflow_step"] = current_step or "1"
@@ -6159,20 +8876,16 @@ def render_unified_navigation(
         "balance_sheet",
         "consolidated_shareholders_equity_statement",
         "income_statement",
+        "amc_group_income_statement",
     ]
-    note_report_keys = [
-        key
-        for key in report_types
-        if key not in core_report_keys
-    ]
-
     def active_class(*conditions: bool) -> str:
         return " active" if any(conditions) else ""
 
     def primary(label: str, href: str, icon: str, active: bool = False) -> str:
+        icon_html = f'<span class="nav-icon">{html.escape(icon)}</span>' if icon else ""
         return (
             f'<a class="side-menu-primary{active_class(active)}" href="{html.escape(href)}" target="_self">'
-            f'<span><span class="nav-icon">{html.escape(icon)}</span>{html.escape(label)}</span><span>&gt;</span></a>'
+            f'<span>{icon_html}{html.escape(label)}</span><span>&gt;</span></a>'
         )
 
     def primary_toggle(label: str, icon: str, active: bool = False) -> str:
@@ -6194,94 +8907,134 @@ def render_unified_navigation(
         )
 
     core_active = current in {"view_report", "publish_report"} and (report_key in core_report_keys or not report_key)
-    notes_active = current in {"view_report", "publish_report"} and report_key in note_report_keys
-    insight_active = current in {"view_report", "publish_report"}
-
-    menu_html = ['<div class="side-menu">']
-    menu_html.append(primary("智能驾驶舱", app_href(nav_mode="home"), "H", current == "home"))
-    menu_html.append(f'<details{" open" if current == "make_report" else ""}>')
-    menu_html.append(f'<summary>{primary_toggle("智能报表工厂", "R", current == "make_report")}</summary>')
-    menu_html.append('<div class="side-menu-children">')
-    workflow_steps = _app.get("WORKFLOW_STEPS") or [
-        ("1", "上传文件", "", "files"),
-        ("2", "上传规则", "", "rules"),
-        ("3", "生成报表", "", "generate"),
-        ("4", "报表校验及发布", "", "publish"),
-    ]
-    workflow_label_overrides = {
-        "上传文件": "文件上传",
-        "上传规则": "规则上传",
-        "报表校验及发布": "报表发布",
-    }
-    for step_number, step_title, *_ in workflow_steps:
-        step_number = str(step_number)
-        label = workflow_label_overrides.get(str(step_title), str(step_title))
-        menu_html.append(
-            secondary(
-                label,
-                app_href(nav_mode="make", workflow_step=step_number),
-                current == "make_report" and (current_step or "1") == step_number,
-            )
-        )
-    menu_html.append("</div>")
-    menu_html.append("</details>")
+    insight_active = current in {"view_report", "publish_report"} and (report_key in core_report_keys or not report_key)
+    mapping_section = _mapping_section()
+    mapping_active = current == "data_mapping"
 
     default_core_key = next((key for key in core_report_keys if key in report_types), "balance_sheet")
-    menu_html.append(f'<details{" open" if insight_active else ""}>')
-    menu_html.append(f'<summary>{primary_toggle("报表洞察中心", "V", insight_active)}</summary>')
-    menu_html.append('<div class="side-menu-children">')
-    menu_html.append(
-        secondary(
-            "核心财务总览",
-            app_href(nav_mode="view", report_key=default_core_key, view_report=default_core_key),
-            core_active,
-        )
-    )
-    for key in core_report_keys:
-        config = report_types.get(key)
-        if not config:
-            continue
-        menu_html.append(
-            tertiary(
-                _report_nav_label(key, config),
-                app_href(nav_mode="view", report_key=key, view_report=key),
-                current in {"view_report", "publish_report"} and report_key == key,
-            )
+
+    def demo_item(label: str, href: str, icon: str, active: bool = False, step: str | None = None) -> str:
+        badge = f'<span class="demo-step">{html.escape(step)}</span>' if step else f'<span class="demo-icon">{html.escape(icon)}</span>'
+        return (
+            f'<a class="demo-menu-item{active_class(active)}" href="{html.escape(href)}" target="_self">'
+            f'{badge}<span>{html.escape(label)}</span></a>'
         )
 
-    first_note_key = note_report_keys[0] if note_report_keys else None
-    notes_href = app_href(nav_mode="view", report_key=first_note_key, view_report=first_note_key) if first_note_key else app_href(nav_mode="view")
-    menu_html.append(
-        secondary(
-            "附注披露中心",
-            notes_href,
-            notes_active,
-        )
-    )
-    if note_report_keys:
-        for key in note_report_keys:
-            config = report_types[key]
-            menu_html.append(
-                tertiary(
-                    str(config.get("display_name") or key),
-                    app_href(nav_mode="view", report_key=key, view_report=key),
-                    current in {"view_report", "publish_report"} and report_key == key,
-                )
-            )
-    else:
-        menu_html.append('<div class="menu-empty">暂无附注报表</div>')
-    menu_html.append("</div>")
-    menu_html.append("</details>")
-
-    menu_html.append(primary("报表交付中心", app_href(nav_mode="delivery"), "D", current == "delivery"))
-
+    menu_html = [
+        """
+        <style>
+        [data-testid="stSidebar"] {
+            background: linear-gradient(180deg, #f8fbff 0%, #eef5ff 100%) !important;
+        }
+        .demo-sidebar-logo {
+            display: flex;
+            gap: .65rem;
+            align-items: center;
+            padding: .8rem .85rem 1rem;
+            margin-bottom: .45rem;
+            color: #10213f;
+            font-weight: 950;
+        }
+        .demo-logo-mark {
+            width: 34px;
+            height: 34px;
+            border-radius: 10px;
+            display: grid;
+            place-items: center;
+            color: #fff;
+            background: linear-gradient(145deg, #1f7cff, #13b7d7);
+        }
+        .demo-logo-text span {
+            display: block;
+            margin-top: .12rem;
+            color: #64748b;
+            font-size: .68rem;
+            font-weight: 750;
+        }
+        .side-menu {
+            padding: 0 .55rem !important;
+            box-sizing: border-box !important;
+            width: 228px !important;
+            min-width: 228px !important;
+            max-width: 228px !important;
+            overflow: hidden !important;
+        }
+        .demo-menu-item {
+            min-height: 44px;
+            display: flex;
+            align-items: center;
+            gap: .72rem;
+            padding: 0 .72rem;
+            margin: .24rem 0;
+            box-sizing: border-box !important;
+            width: 196px !important;
+            min-width: 196px !important;
+            max-width: 196px !important;
+            overflow: hidden !important;
+            border-radius: 10px;
+            color: #24364b !important;
+            text-decoration: none !important;
+            font-size: .88rem;
+            font-weight: 850;
+        }
+        .demo-menu-item > span:last-child {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .demo-menu-item.active,
+        .demo-menu-item:hover {
+            color: #0f4ca4 !important;
+            background: linear-gradient(90deg, rgba(31,124,255,.15), rgba(31,124,255,.06));
+        }
+        .demo-step {
+            width: 20px;
+            min-width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: grid;
+            place-items: center;
+            color: #fff;
+            background: #1f7cff;
+            font-size: .68rem;
+            font-weight: 950;
+        }
+        .demo-icon {
+            width: 20px;
+            min-width: 20px;
+            color: #49657f;
+            text-align: center;
+            font-weight: 950;
+        }
+        .demo-sidebar-footer {
+            position: fixed;
+            left: 1.15rem;
+            bottom: 1.2rem;
+            color: #94a3b8;
+            font-size: .76rem;
+        }
+        </style>
+        <div class="demo-sidebar-logo">
+          <div class="demo-logo-mark">▥</div>
+          <div class="demo-logo-text">IFRS 18 工作台<span>报表列报规则切换平台</span></div>
+        </div>
+        <div class="side-menu">
+        """
+    ]
+    menu_html.append(demo_item("首页", app_href(nav_mode="home"), "⌂", current == "home"))
+    menu_html.append(demo_item("IFRS规则初始化", app_href(nav_mode="data_mapping", mapping_section="init"), "", mapping_active, "1"))
+    menu_html.append(demo_item("数据接入中心", app_href(nav_mode="make", workflow_step="1"), "", current == "make_report" and (current_step or "1") == "1", "2"))
+    menu_html.append(demo_item("规则编排中心", app_href(nav_mode="make", workflow_step="2"), "", current == "make_report" and (current_step or "1") == "2", "3"))
+    menu_html.append(demo_item("AI报表生成", app_href(nav_mode="make", workflow_step="3"), "", current == "make_report" and (current_step or "1") == "3", "4"))
+    menu_html.append(demo_item("报表发布", app_href(nav_mode="make", workflow_step="4"), "", current == "make_report" and (current_step or "1") == "4", "5"))
+    menu_html.append(demo_item("报表洞察中心", app_href(nav_mode="view"), "◔", insight_active))
     if user.get("is_admin"):
-        menu_html.append(primary("权限管理", app_href(nav_mode="admin"), "A", current == "admin"))
-
-    menu_html.append("</div>")
+        menu_html.append(demo_item("权限管理", app_href(nav_mode="admin"), "◆", current == "admin"))
+    menu_html.append('</div><div class="demo-sidebar-footer">‹ 收起菜单</div>')
     st.sidebar.markdown("".join(menu_html), unsafe_allow_html=True)
 
-    if selected not in {"home", "make", "view", "delivery", "admin"}:
+    if selected not in {"home", "make", "view", "data_mapping", "admin"}:
         selected = "home"
     return selected, report_key, report_config
 
@@ -6297,6 +9050,9 @@ def _main_body() -> None:
     user = _app["current_user"](access_control)
     report_types = _app["load_report_types"](_app["REPORT_CONFIG_PATH"])
     render_top_user_bar(user)
+    if _nav_mode() == "open_file":
+        render_open_local_file_page()
+        return
     selected, report_key, report_config = render_unified_navigation(report_types, access_control, user)
 
     if selected == "home":
@@ -6305,11 +9061,17 @@ def _main_body() -> None:
         file_templates = _app["load_file_templates"]()
         file_groups = _app["get_file_groups"](file_templates)
         report_options = _app["get_report_options"](report_types)
-        _app["render_make_report_page"](file_groups, report_options, report_types)
+        if (_workflow_step() or "1") == "4":
+            render_publish_report_step(report_options, report_types)
+        else:
+            _app["render_make_report_page"](file_groups, report_options, report_types)
     elif selected == "view":
+        publish_message = st.session_state.pop("publish_to_insight_message", None)
+        if publish_message:
+            st.success(publish_message)
         render_view_report_page(access_control, report_types, user)
-    elif selected == "delivery":
-        render_delivery_center_page(report_types)
+    elif selected == "data_mapping":
+        render_data_mapping_page()
     elif selected == "admin" and user.get("is_admin"):
         render_permission_assignment_page(access_control, report_types)
     else:
@@ -6317,7 +9079,7 @@ def _main_body() -> None:
 
 
 def main() -> None:
-    st.set_page_config(page_title="财报智控平台", layout="wide", initial_sidebar_state="expanded")
+    st.set_page_config(page_title="IFRS 18报表规则转换平台", layout="wide", initial_sidebar_state="expanded")
     _run_with_upload_legacy_header_hidden(_main_body)
 
 

@@ -122,6 +122,7 @@ def write_report_generation_excel(
     report_config: dict[str, Any],
     output_path: str | Path,
     balance_check: dict[str, Any] | None = None,
+    trace_df: pd.DataFrame | None = None,
 ) -> Path:
     """Write a generated report using report type configuration."""
     if report_df is None:
@@ -143,9 +144,14 @@ def write_report_generation_excel(
         with pd.ExcelWriter(path, engine="openpyxl") as writer:
             report_df.to_excel(writer, sheet_name=result_sheet_name, index=False)
             summary_df.to_excel(writer, sheet_name=SUMMARY_SHEET_NAME, index=False)
+            if trace_df is not None and not trace_df.empty:
+                trace_sheet_name = _safe_sheet_name("指标追溯明细")
+                trace_df.to_excel(writer, sheet_name=trace_sheet_name, index=False)
 
             _format_table_sheet(writer.book[result_sheet_name], report_df)
             _format_table_sheet(writer.book[SUMMARY_SHEET_NAME], summary_df)
+            if trace_df is not None and not trace_df.empty:
+                _format_table_sheet(writer.book[trace_sheet_name], trace_df)
 
         return path
     except OSError as exc:

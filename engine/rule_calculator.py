@@ -64,6 +64,18 @@ SUBSIDIARY_OWNERSHIP_AMOUNT_PATTERN = re.compile(
 PERPETUAL_BOND_INTEREST_PATTERN = re.compile(
     r"(?:1-9-20251231)?永续债明细表(?:的)?每支永续债发行金额\*初始利率之和|永续债明细表发行金额乘初始利率之和"
 )
+AMC_MAPPING_BALANCE_PATTERN = re.compile(
+    r"(?P<prefix>30[1-4]_01_20251231)[^+\n\r]*?科目余额表的科目编码\s*in\s*"
+    r"[（(](?P<table>[^.）)]+?)科目映射表\.(?P<column>[^=）)]+?)\s*=\s*['‘’\"]"
+    r"(?P<target>.*?)(?:['‘’\"]\s*[）)]\s*的余额合计数|(?=\+\s*30[1-4]_01_20251231)|$)",
+    re.DOTALL,
+)
+AMC_PREFIX_INSTITUTION = {
+    "301_01_20251231": "资产公司",
+    "302_01_20251231": "银行类",
+    "303_01_20251231": "证券类",
+    "304_01_20251231": "保险类",
+}
 AMOUNT_UNIT_DIVISOR = 1000.0
 ACTUARIAL_BENEFIT_OBLIGATION_AMOUNTS = {
     "B0722": 2333035.0,
@@ -126,6 +138,8 @@ class RuleCalculator:
         self._adjustment_df: pd.DataFrame | None = None
         self._oci_balance_df: pd.DataFrame | None = None
         self._impairment_detail_sheet_cache: dict[tuple[Path, str], pd.DataFrame] = {}
+        self._amc_subject_balance_cache: dict[str, pd.DataFrame] = {}
+        self._amc_mapping_cache: dict[str, pd.DataFrame] = {}
 
     def calculate(self, rules_df: pd.DataFrame) -> pd.DataFrame:
         if rules_df is None or rules_df.empty:
@@ -192,10 +206,117 @@ class RuleCalculator:
 
         return result
 
+    def build_amc_mapping_trace(self, rules_df: pd.DataFrame) -> pd.DataFrame:
+        """Expand AMC mapping-balance rules to source mapping and balance rows."""
+        if rules_df is None or rules_df.empty:
+            return pd.DataFrame()
+
+        trace_rows: list[dict[str, Any]] = []
+        for _, row in rules_df.iterrows():
+            rule_text = _row_text(row, "指标加工规则", "加工规则")
+            if not AMC_MAPPING_BALANCE_PATTERN.search(rule_text):
+                continue
+
+            item_code = _row_text(row, "指标编码")
+            item_name = _row_text(row, "指标名称")
+            report_name = _row_text(row, "报表名称")
+            data_source = _row_text(row, "指标数据来源", "数据来源")
+            trailing_multiplier = _amc_mapping_rule_trailing_multiplier(rule_text)
+
+            for match in AMC_MAPPING_BALANCE_PATTERN.finditer(rule_text):
+                prefix = _normalize_text(match.group("prefix"))
+                institution = AMC_PREFIX_INSTITUTION.get(prefix, "")
+                mapping_column = _normalize_amc_mapping_column(match.group("column"))
+                target = _normalize_amc_mapping_target(match.group("target"))
+                term_sign = _term_sign(rule_text, match.start())
+                balance_file = _find_file_by_prefix(self.upload_dir, prefix)
+                mapping_file = _amc_subject_mapping_input_path(self.upload_dir, institution) if institution else None
+                base_row = {
+                    "报表名称": report_name,
+                    "指标编码": item_code,
+                    "指标名称": item_name,
+                    "数据来源": data_source,
+                    "加工规则": rule_text,
+                    "余额表前缀": prefix,
+                    "机构类型": institution,
+                    "映射口径列": mapping_column,
+                    "目标映射项": target,
+                    "规则项符号": term_sign,
+                    "整体尾部乘数": trailing_multiplier,
+                    "科目余额表文件": balance_file.name if balance_file else "",
+                    "科目映射表文件": mapping_file.name if mapping_file else "",
+                }
+                if not institution or not mapping_column or not target:
+                    trace_rows.append({**base_row, "追溯状态": "规则项无法解析"})
+                    continue
+
+                mapping_df = self._load_amc_mapping_df(institution)
+                balance_df = self._load_amc_subject_balance_df(prefix)
+                if mapping_df.empty or balance_df.empty or mapping_column not in mapping_df.columns:
+                    trace_rows.append({**base_row, "追溯状态": "映射表或余额表缺失"})
+                    continue
+
+                selected_mapping = mapping_df.loc[
+                    mapping_df[mapping_column].map(_normalize_text).eq(target),
+                    ["account_code", "account_name", mapping_column],
+                ].drop_duplicates()
+                if selected_mapping.empty:
+                    trace_rows.append({**base_row, "追溯状态": "映射表未命中科目"})
+                    continue
+
+                matched_balance = balance_df.merge(
+                    selected_mapping,
+                    on=["account_code", "account_name"],
+                    how="inner",
+                )
+                if matched_balance.empty:
+                    for _, mapping_row in selected_mapping.iterrows():
+                        trace_rows.append(
+                            {
+                                **base_row,
+                                "追溯状态": "映射命中但余额表未匹配",
+                                "科目编码": mapping_row.get("account_code", ""),
+                                "科目名称": mapping_row.get("account_name", ""),
+                                "映射值": mapping_row.get(mapping_column, ""),
+                                "原始余额-元": 0.0,
+                                "贡献金额-元": 0.0,
+                                "贡献金额-千元": 0.0,
+                            }
+                        )
+                    continue
+
+                for _, balance_row in matched_balance.iterrows():
+                    amount_yuan = float(
+                        pd.to_numeric(pd.Series([balance_row.get("amount", 0.0)]), errors="coerce")
+                        .fillna(0.0)
+                        .iloc[0]
+                    )
+                    contribution_yuan = amount_yuan * term_sign * trailing_multiplier
+                    trace_rows.append(
+                        {
+                            **base_row,
+                            "追溯状态": "已追溯",
+                            "科目编码": balance_row.get("account_code", ""),
+                            "科目名称": balance_row.get("account_name", ""),
+                            "映射值": balance_row.get(mapping_column, ""),
+                            "原始余额-元": amount_yuan,
+                            "贡献金额-元": contribution_yuan,
+                            "贡献金额-千元": contribution_yuan / AMOUNT_UNIT_DIVISOR,
+                        }
+                    )
+
+        return pd.DataFrame(trace_rows)
+
     def _calculate_independent_rule(self, row: pd.Series) -> tuple[float | None, str, str]:
         data_source = _row_text(row, "指标数据来源", "数据来源")
         rule_text = _row_text(row, "指标加工规则", "加工规则")
         item_code = _row_text(row, "指标编码")
+        item_name = _row_text(row, "指标名称")
+
+        if item_code.startswith("A6") and not rule_text and data_source == "明细":
+            return 0.0, "已计算", "AMC集团利润表明细项未配置加工规则，按0参与上级公式"
+        if item_code.startswith("A6") and not rule_text and not data_source and re.match(r"^[一二三四五六七八九十]+、", item_name):
+            return None, "已计算", "AMC集团利润表标题展示行，无金额计算规则"
 
         if item_code == "B0694":
             amount = self._calculate_asset_impairment_b0694_amount()
@@ -232,6 +353,10 @@ class RuleCalculator:
         consolidation_date_amount = _calculate_consolidation_date_amount_rule(rule_text, self.upload_dir)
         if consolidation_date_amount is not None:
             return consolidation_date_amount, "已计算", "按合并抵消底稿指定日期原始金额计算，单位转换为千元"
+
+        amc_mapping_amount = self._calculate_amc_mapping_balance_rule(rule_text)
+        if amc_mapping_amount is not None:
+            return amc_mapping_amount, "已计算", "按AMC集团科目余额表和科目映射表筛选汇总，单位转换为千元"
 
         default_amount = _parse_default_amount(data_source, rule_text)
         if default_amount is not None:
@@ -312,6 +437,110 @@ class RuleCalculator:
             return None, "未计算", "科目余额规则未匹配到账户或基础文件"
 
         return None, "未计算", "等待指标公式或暂不支持的规则类型"
+
+    def _calculate_amc_mapping_balance_rule(self, rule_text: str) -> float | None:
+        if "科目映射表" not in rule_text or "科目余额表" not in rule_text or "余额合计数" not in rule_text:
+            return None
+
+        matches = list(AMC_MAPPING_BALANCE_PATTERN.finditer(rule_text))
+        if not matches:
+            return None
+
+        total = 0.0
+        matched_any = False
+        for match in matches:
+            prefix = _normalize_text(match.group("prefix"))
+            institution = AMC_PREFIX_INSTITUTION.get(prefix)
+            if not institution:
+                continue
+            mapping_column = _normalize_amc_mapping_column(match.group("column"))
+            target = _normalize_amc_mapping_target(match.group("target"))
+            if not mapping_column or not target:
+                continue
+
+            mapping_df = self._load_amc_mapping_df(institution)
+            balance_df = self._load_amc_subject_balance_df(prefix)
+            if mapping_df.empty or balance_df.empty or mapping_column not in mapping_df.columns:
+                continue
+
+            selected_mapping = mapping_df.loc[
+                mapping_df[mapping_column].map(_normalize_text).eq(target),
+                ["account_code", "account_name"],
+            ].drop_duplicates()
+            if selected_mapping.empty:
+                matched_any = True
+                continue
+
+            matched_balance = balance_df.merge(selected_mapping, on=["account_code", "account_name"], how="inner")
+            amount = pd.to_numeric(matched_balance["amount"], errors="coerce").fillna(0.0).sum()
+            total += _term_sign(rule_text, match.start()) * float(amount)
+            matched_any = True
+
+        if not matched_any:
+            return None
+        return (total / AMOUNT_UNIT_DIVISOR) * _amc_mapping_rule_trailing_multiplier(rule_text)
+
+    def _load_amc_subject_balance_df(self, prefix: str) -> pd.DataFrame:
+        if prefix in self._amc_subject_balance_cache:
+            return self._amc_subject_balance_cache[prefix]
+
+        file_path = _find_file_by_prefix(self.upload_dir, prefix)
+        if file_path is None:
+            self._amc_subject_balance_cache[prefix] = pd.DataFrame(columns=["account_code", "account_name", "amount"])
+            return self._amc_subject_balance_cache[prefix]
+
+        raw_df = pd.read_excel(file_path, sheet_name=0, dtype=object, engine="openpyxl").fillna("")
+        code_column = _find_column_by_alias(raw_df.columns, ["科目编码", "科目代码", "科目号", "account_code"])
+        name_column = _find_column_by_alias(raw_df.columns, ["科目名称", "科目名", "account_name"])
+        amount_column = _find_column_by_alias(raw_df.columns, ["科目余额", "科目余额表", "余额", "amount"])
+        if code_column is None or name_column is None or amount_column is None:
+            self._amc_subject_balance_cache[prefix] = pd.DataFrame(columns=["account_code", "account_name", "amount"])
+            return self._amc_subject_balance_cache[prefix]
+
+        result = pd.DataFrame(
+            {
+                "account_code": raw_df[code_column].map(_clean_code),
+                "account_name": raw_df[name_column].map(_normalize_text),
+                "amount": pd.to_numeric(raw_df[amount_column], errors="coerce").fillna(0.0),
+            }
+        )
+        result = result.loc[(result["account_code"] != "") & (result["account_name"] != "")].copy()
+        self._amc_subject_balance_cache[prefix] = result
+        return result
+
+    def _load_amc_mapping_df(self, institution: str) -> pd.DataFrame:
+        if institution in self._amc_mapping_cache:
+            return self._amc_mapping_cache[institution]
+
+        mapping_path = _amc_subject_mapping_input_path(self.upload_dir, institution)
+        if mapping_path is None:
+            self._amc_mapping_cache[institution] = pd.DataFrame()
+            return self._amc_mapping_cache[institution]
+
+        raw_df = pd.read_excel(mapping_path, dtype=object, engine="openpyxl").fillna("")
+        code_column = _find_column_by_alias(raw_df.columns, ["科目编码", "科目代码", "科目号", "account_code"])
+        name_column = _find_column_by_alias(raw_df.columns, ["科目名称", "科目名", "account_name"])
+        if code_column is None or name_column is None:
+            self._amc_mapping_cache[institution] = pd.DataFrame()
+            return self._amc_mapping_cache[institution]
+
+        result = pd.DataFrame(
+            {
+                "account_code": raw_df[code_column].map(_clean_code),
+                "account_name": raw_df[name_column].map(_normalize_text),
+            }
+        )
+        column_aliases = {
+            "财政部口径映射": ["财政部口径映射", "财政部报表口径", "财政部口径"],
+            "IFRS 18映射": ["IFRS 18映射", "IFRS18映射", "IFRS 18分类", "IFRS18分类"],
+            "集团科目口径映射": ["集团科目口径映射", "集团口径映射", "集团科目口径"],
+        }
+        for target_column, aliases in column_aliases.items():
+            source_column = _find_column_by_alias(raw_df.columns, aliases)
+            result[target_column] = raw_df[source_column].map(_normalize_text) if source_column is not None else ""
+        result = result.loc[(result["account_code"] != "") & (result["account_name"] != "")].copy()
+        self._amc_mapping_cache[institution] = result
+        return result
 
     def _calculate_defined_contribution_total(self, item_code: str) -> float | None:
         code = _normalize_text(item_code)
@@ -632,6 +861,8 @@ class RuleCalculator:
             expression = rule_text
         else:
             expression = _extract_formula_expression(rule_text)
+        if _row_text(row, "指标编码") == "A6038" and "A60446" in expression:
+            expression = "A6039+A6040+A6041+A6042+A6043+A6044+A6045"
         if _row_text(row, "指标编码") == "A0076" and expression.strip() == "A0076":
             expression = "B0866+B0867+B0868+B0869"
         expression = _normalize_formula_entity_terms(expression, self.subject_balance_prefix)
@@ -3001,6 +3232,8 @@ def _is_formula_rule(rule_text: str) -> bool:
         return False
     if OCI_SUBSIDIARY_CONSOLIDATION_DELTA_PATTERN.search(rule_text):
         return False
+    if AMC_MAPPING_BALANCE_PATTERN.search(rule_text):
+        return False
 
     expression = _extract_formula_expression(rule_text)
     expression = expression.replace("（", "(").replace("）", ")").replace("×", "*").replace("－", "-")
@@ -3713,6 +3946,17 @@ def _term_sign(rule_text: str, start_index: int) -> int:
     return -1 if prefix[-1] == "-" else 1
 
 
+def _amc_mapping_rule_trailing_multiplier(rule_text: str) -> float:
+    text = _normalize_text(rule_text).replace("＊", "*")
+    match = re.search(r"\)\s*\*\s*([+-]?\d+(?:\.\d+)?)\s*$", text)
+    if not match:
+        return 1.0
+    try:
+        return float(match.group(1))
+    except ValueError:
+        return 1.0
+
+
 def _safe_eval_numeric_expression(expression: str) -> float:
     tree = ast.parse(expression, mode="eval")
     return float(_eval_ast_node(tree.body))
@@ -3752,6 +3996,51 @@ def _find_file_by_prefix(upload_dir: Path, prefix: str) -> Path | None:
         return None
     matched_files = sorted(path for path in upload_dir.iterdir() if path.is_file() and path.name.startswith(prefix))
     return matched_files[0] if matched_files else None
+
+
+def _amc_subject_mapping_input_path(upload_dir: Path, institution: str) -> Path | None:
+    candidates = [
+        upload_dir.parent / "output" / "data_mapping" / "subject_balance_inputs" / f"{institution}_科目表.xlsx",
+        Path("data") / "output" / "data_mapping" / "subject_balance_inputs" / f"{institution}_科目表.xlsx",
+    ]
+    for path in candidates:
+        if path.exists():
+            return path
+    return None
+
+
+def _find_column_by_alias(columns: Any, aliases: list[str]) -> Any | None:
+    normalized_aliases = {_compact_text(alias) for alias in aliases}
+    for column in columns:
+        if _compact_text(column) in normalized_aliases:
+            return column
+    for column in columns:
+        column_text = _compact_text(column)
+        if any(alias and (alias in column_text or column_text in alias) for alias in normalized_aliases):
+            return column
+    return None
+
+
+def _compact_text(value: Any) -> str:
+    return re.sub(r"\s+", "", _normalize_text(value)).lower()
+
+
+def _normalize_amc_mapping_column(value: Any) -> str:
+    text = _compact_text(value)
+    if "ifrs18" in text or ("ifrs" in text and "18" in text):
+        return "IFRS 18映射"
+    if "财政部" in text:
+        return "财政部口径映射"
+    if "集团" in text:
+        return "集团科目口径映射"
+    return _normalize_text(value)
+
+
+def _normalize_amc_mapping_target(value: Any) -> str:
+    text = _normalize_text(value)
+    text = text.strip("'‘’\" ")
+    text = re.sub(r"\+\s*$", "", text).strip()
+    return text
 
 
 def _clean_code(value: Any) -> str:

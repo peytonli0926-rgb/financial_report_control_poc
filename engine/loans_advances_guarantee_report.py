@@ -46,8 +46,17 @@ def build_loans_advances_guarantee_6_2_report(
     rule_rows = _load_rule_rows(rule_file_path, report_config)
     base_report = _build_base_report(rule_rows, upload_dir, report_config, institution_context)
     base_rows_by_code = _rows_by_item_code(base_report)
+    bill_discount_thousand = _load_company_personal_6_1_amount_thousand(
+        rule_file_path,
+        upload_dir,
+        institution_context,
+        "B0306",
+    )
+    credit_card_subject_thousand = _credit_card_subject_debit_total_thousand(upload_dir)
+    trade_finance_credit_thousand = _subject_amount_thousand(upload_dir, "14011201", "贷方")
     summary = _query_guarantee_amounts_with_duckdb(source_files)
     corporate_summary = _query_corporate_guarantee_amounts(upload_dir)
+    corporate_adjustment_total = _corporate_adjustment_total(corporate_summary)
     bill_extra_amount = _query_bill_extra_amount(upload_dir)
     period = str((institution_context or {}).get("period") or "")
     scope = str((institution_context or {}).get("scope") or "集团/本行")
@@ -65,7 +74,22 @@ def build_loans_advances_guarantee_6_2_report(
             continue
         if item_code == "B0312" and item_code in base_rows_by_code:
             base_row = base_rows_by_code[item_code]
-            rows.append(_report_row_from_base(index, rule_row, base_row, period, scope, institution_code, institution_name))
+            if _base_row_has_amount(base_row):
+                rows.append(_report_row_from_base(index, rule_row, base_row, period, scope, institution_code, institution_name))
+            else:
+                total_amount_thousand = _generated_amount_sum_thousand(rows)
+                rows.append(
+                    _report_row_from_amount(
+                        index,
+                        rule_row,
+                        total_amount_thousand,
+                        period,
+                        scope,
+                        institution_code,
+                        institution_name,
+                        "按B0308-B0311四类担保方式金额合计计算。",
+                    )
+                )
             continue
 
         balance_yuan = sum(
@@ -88,6 +112,10 @@ def build_loans_advances_guarantee_6_2_report(
         if item_code == "B0308":
             balance_yuan += bill_extra_amount.get("balance", Decimal("0"))
             interest_yuan += bill_extra_amount.get("interest", Decimal("0"))
+            adjustment_yuan -= corporate_adjustment_total
+            balance_yuan += (credit_card_subject_thousand - trade_finance_credit_thousand) * THOUSAND
+        if item_code == "B0311":
+            balance_yuan += bill_discount_thousand * THOUSAND
         amount_thousand = float((balance_yuan + interest_yuan + adjustment_yuan) / THOUSAND)
         row_count = sum(
             (
@@ -99,6 +127,15 @@ def build_loans_advances_guarantee_6_2_report(
         )
         if item_code == "B0308":
             row_count += int(bill_extra_amount.get("row_count", 0))
+        extra_note = ""
+        if item_code == "B0308":
+            extra_note = (
+                f"追加信用卡相关科目借方轧差值：{float(credit_card_subject_thousand):,.2f}千元；"
+                f"扣减14011201科目贷方轧差值：{float(trade_finance_credit_thousand):,.2f}千元；"
+                f"扣减5-7-3-2 BIZ_TYPE=01利息调整：{float(corporate_adjustment_total / THOUSAND):,.2f}千元；"
+            )
+        if item_code == "B0311":
+            extra_note = f"追加票据贴现B0306：{float(bill_discount_thousand):,.2f}千元；"
         rows.append(
             {
                 "期间": period,
@@ -119,6 +156,7 @@ def build_loans_advances_guarantee_6_2_report(
                     f"DuckDB扫描文件：{source_names}；"
                     f"担保方式：{', '.join(GUARANTEE_LABELS.get(code, code) for code in guarantee_codes)}；"
                     f"明细行数：{row_count:,}；"
+                    f"{extra_note}"
                     f"本金合计：{float(balance_yuan / THOUSAND):,.2f}千元；"
                     f"应计利息合计：{float(interest_yuan / THOUSAND):,.2f}千元；"
                     f"利息调整合计：{float(adjustment_yuan / THOUSAND):,.2f}千元。"
@@ -126,6 +164,126 @@ def build_loans_advances_guarantee_6_2_report(
             }
         )
     return pd.DataFrame(rows)
+
+
+def _credit_card_subject_debit_total_thousand(upload_dir: str | Path) -> Decimal:
+    subjects = (
+        "13015602",
+        "13015604",
+        "13015605",
+        "13015609",
+        "14041102",
+        "14041103",
+        "14041104",
+        "14041107",
+        "14041108",
+        "14041109",
+        "14041110",
+        "14041112",
+        "14041113",
+        "14041114",
+    )
+    return sum((_subject_amount_thousand(upload_dir, subject, "借方") for subject in subjects), Decimal("0"))
+
+
+def _subject_amount_thousand(upload_dir: str | Path, subject_code: str, direction: str) -> Decimal:
+    from engine.rule_calculator import RuleCalculator
+
+    calculator = RuleCalculator(
+        upload_dir,
+        subject_balance_prefix="1-12-",
+        report_period="20251231",
+    )
+    amount = calculator._calculate_subject_balance_rule(f"{subject_code}科目余额{direction}轧差值")
+    return _to_decimal(amount)
+
+
+def _corporate_adjustment_total(corporate_summary: dict[str, dict[str, Decimal | int]]) -> Decimal:
+    return sum(
+        (_to_decimal(summary.get("adjustment")) for summary in corporate_summary.values()),
+        Decimal("0"),
+    )
+
+
+def _base_row_has_amount(base_row: dict[str, Any]) -> bool:
+    for column in ("生成金额-本行", "生成金额-集团"):
+        value = base_row.get(column)
+        if value is None or pd.isna(value):
+            continue
+        try:
+            Decimal(str(value))
+            return True
+        except Exception:
+            continue
+    return False
+
+
+def _generated_amount_sum_thousand(rows: list[dict[str, Any]]) -> Decimal:
+    return sum((_to_decimal(row.get("生成金额-本行")) for row in rows), Decimal("0"))
+
+
+def _report_row_from_amount(
+    index: int,
+    rule_row: dict[str, Any],
+    amount_thousand: Decimal,
+    period: str,
+    scope: str,
+    institution_code: str,
+    institution_name: str,
+    note: str,
+) -> dict[str, Any]:
+    amount = float(amount_thousand)
+    return {
+        "期间": period,
+        "机构口径": scope,
+        "机构编码": institution_code,
+        "机构": institution_name,
+        "序号": index,
+        "报表名称": str(rule_row.get("报表名称") or REPORT_KEYWORD),
+        "指标编码": str(rule_row.get("指标编码") or ""),
+        "指标名称": str(rule_row.get("指标名称") or ""),
+        "数据来源": str(rule_row.get("数据来源") or ""),
+        "指标类型": str(rule_row.get("指标类型") or "复合指标"),
+        "加工规则": str(rule_row.get("加工规则") or ""),
+        "生成金额-集团": amount,
+        "生成金额-本行": amount,
+        "计算状态": "已计算",
+        "计算说明": note,
+    }
+
+
+def _load_company_personal_6_1_amount_thousand(
+    rule_file_path: str | Path | None,
+    upload_dir: str | Path,
+    institution_context: dict[str, Any] | None,
+    item_code: str,
+) -> Decimal:
+    if not rule_file_path:
+        return Decimal("0")
+    rules = find_report_rules(rule_file_path, "五、6-1 发放贷款和垫款-按公司和个人分布情况")
+    if rules.empty:
+        return Decimal("0")
+    context = institution_context or {}
+    report_df = build_report_from_rules(
+        rules,
+        {
+            "display_name": "五、6-1 发放贷款和垫款-按公司和个人分布情况",
+            "output_prefix": "发放贷款和垫款-按公司和个人分布情况",
+            "period_type": "时点",
+        },
+        upload_dir=str(upload_dir),
+        institution_name=context.get("name"),
+        institution_code=context.get("code"),
+        institution_scope=context.get("scope"),
+        report_period=str(context.get("period") or ""),
+    )
+    if report_df is None or report_df.empty or "指标编码" not in report_df.columns:
+        return Decimal("0")
+    target = report_df[report_df["指标编码"].astype(str).str.strip() == item_code]
+    if target.empty:
+        return Decimal("0")
+    amount_column = "生成金额-本行" if "生成金额-本行" in target.columns else "生成金额-集团"
+    return _to_decimal(target.iloc[0].get(amount_column))
 
 
 def _build_base_report(

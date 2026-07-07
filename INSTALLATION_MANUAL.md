@@ -1,23 +1,23 @@
-# 财报智控平台安装手册
+# IFRS 18 报表列报规则切换平台安装手册
 
 ## 1. 安装包文件
 
 交付安装包为：
 
 ```text
-financial_report_control_platform.zip
+ifrs18_report_presentation_rule_switch_platform.zip
 ```
 
 解压后得到目录：
 
 ```text
-financial_report_control_platform/
+ifrs18_report_presentation_rule_switch_platform/
 ```
 
 主要入口文件：
 
 ```text
-start_platform.bat
+start_ifrs18_platform.bat
 ```
 
 ## 2. 安装环境要求
@@ -57,29 +57,29 @@ py --version
 - 默认访问地址：
 
 ```text
-http://127.0.0.1:8501
+http://127.0.0.1:8502
 ```
 
 ### 端口
 
-- 默认使用本机 `8501` 端口。
+- 默认使用本机 `8502` 端口。
 - 如果端口被占用，可使用 PowerShell 指定其他端口启动：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\packaging\windows\start_app.ps1 -Port 8502
+powershell -NoProfile -ExecutionPolicy Bypass -File .\packaging\windows\start_app.ps1 -Port 8503
 ```
 
 ## 3. 安装和启动步骤
 
-1. 将 `financial_report_control_platform.zip` 复制到目标 Windows 机器。
+1. 将 `ifrs18_report_presentation_rule_switch_platform.zip` 复制到目标 Windows 机器。
 2. 解压 ZIP 文件。
-3. 进入解压后的 `financial_report_control_platform` 目录。
-4. 双击 `start_platform.bat`。
+3. 进入解压后的 `ifrs18_report_presentation_rule_switch_platform` 目录。
+4. 双击 `start_ifrs18_platform.bat`。
 5. 首次运行时，程序会自动创建 `.venv` 虚拟环境并安装依赖。
 6. 启动完成后，浏览器会自动打开：
 
 ```text
-http://127.0.0.1:8501
+http://127.0.0.1:8502
 ```
 
 如果浏览器没有自动打开，请手动复制上述地址到浏览器访问。
@@ -164,18 +164,18 @@ Ctrl+C
 
 请确认目标机器可以访问 Python 包索引源。企业网络环境下，可先配置 pip 镜像源后再执行安装。
 
-### 8501 端口被占用
+### 8502 端口被占用
 
 可改用其他端口，例如：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\packaging\windows\start_app.ps1 -Port 8502
+powershell -NoProfile -ExecutionPolicy Bypass -File .\packaging\windows\start_app.ps1 -Port 8503
 ```
 
 然后访问：
 
 ```text
-http://127.0.0.1:8502
+http://127.0.0.1:8503
 ```
 
 ### 浏览器无法访问
@@ -183,5 +183,5 @@ http://127.0.0.1:8502
 请确认启动窗口没有报错，并确认访问地址为本机地址：
 
 ```text
-http://127.0.0.1:8501
+http://127.0.0.1:8502
 ```

@@ -1,0 +1,12 @@
+services:
+  ifrs18:
+    image: ifrs18-report-platform:latest
+    container_name: ifrs18-report-platform
+    ports:
+      - "8502:8502"
+    volumes:
+      - ifrs18_output:/app/data/output
+    restart: unless-stopped
+
+volumes:
+  ifrs18_output:

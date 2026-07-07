@@ -1,3 +1,8 @@
 [server]
 maxUploadSize = 4096
+address = "127.0.0.1"
+port = 8502
 
+[browser]
+serverAddress = "127.0.0.1"
+serverPort = 8502
